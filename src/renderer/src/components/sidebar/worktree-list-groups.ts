@@ -8,6 +8,7 @@ import type {
   FolderWorkspace,
   Repo,
   ProjectGroup,
+  Collection,
   ProjectOrderBy,
   Worktree,
   WorktreeLineage,
@@ -69,6 +70,8 @@ export type GroupHeaderRow = {
   tone: string
   icon?: React.ComponentType<{ className?: string }>
   repo?: Repo
+  /** Set on collection section headers (and their repo sub-headers, together with `repo`). */
+  collection?: Collection
   projectGroup?: ProjectGroup | { id: null; name: 'Ungrouped'; tabOrder: number }
   projectGroupDepth?: number
   hostId?: ExecutionHostId

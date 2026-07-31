@@ -29,13 +29,16 @@ import {
   Workflow,
   FolderInput,
   FolderPlus,
-  FolderTree
+  FolderTree,
+  Layers,
+  Plus
 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { useAllWorktrees, useRepoById, useRepoMap, useWorktreeMap } from '@/store/selectors'
 import { cn } from '@/lib/utils'
 import type {
+  Collection,
   Repo,
   Worktree,
   WorkspaceStatus,
@@ -64,6 +67,7 @@ import {
   parseWorkspaceKey,
   worktreeWorkspaceKey
 } from '../../../../shared/workspace-scope'
+import { assignCollectionMembership, sortCollectionsByOrder } from '../../../../shared/collections'
 
 type Props = {
   worktree: Worktree
@@ -75,6 +79,7 @@ type Props = {
   onOpenChange?: (open: boolean) => void
 }
 
+const EMPTY_COLLECTIONS: readonly Collection[] = []
 const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'orca-close-all-context-menus'
 const WORKTREE_CONTEXT_MENU_SCOPE_ATTR = 'data-worktree-context-menu-scope'
 const WORKTREE_NATIVE_CONTEXT_MENU_ATTR = 'data-worktree-native-context-menu'
@@ -335,6 +340,8 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
   const openModal = useAppStore((s) => s.openModal)
   const projectGroups = useAppStore((s) => s.projectGroups)
   const createProjectGroup = useAppStore((s) => s.createProjectGroup)
+  const collections = useAppStore((s) => s.collections ?? EMPTY_COLLECTIONS)
+  const createCollection = useAppStore((s) => s.createCollection)
   const moveProjectToGroup = useAppStore((s) => s.moveProjectToGroup)
   const deleteFolderWorkspace = useAppStore((s) => s.deleteFolderWorkspace)
   const setActiveWorktree = useAppStore((s) => s.setActiveWorktree)
@@ -400,6 +407,57 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
   const workspaceScope = parseWorkspaceKey(worktree.id)
   const folderWorkspaceId =
     workspaceScope?.type === 'folder' ? workspaceScope.folderWorkspaceId : null
+
+  const sortedCollections = useMemo(() => sortCollectionsByOrder(collections), [collections])
+  const memberCollections = useMemo(
+    () => sortedCollections.filter((entry) => worktree.collectionIds?.includes(entry.id)),
+    [sortedCollections, worktree.collectionIds]
+  )
+  const addableCollections = useMemo(
+    () => sortedCollections.filter((entry) => !worktree.collectionIds?.includes(entry.id)),
+    [sortedCollections, worktree.collectionIds]
+  )
+  const [createCollectionDialogOpen, setCreateCollectionDialogOpen] = useState(false)
+  // Why: a feature worktree lives in exactly one workstream, so the gesture is
+  // a move; only the primary checkout (shared infrastructure) may sit in many.
+  const exclusiveCollectionMembership = !worktree.isMainWorktree
+  const handleAddToCollection = useCallback(
+    (collectionId: string) => {
+      void updateWorktreeMeta(worktree.id, {
+        collectionIds: assignCollectionMembership(worktree.collectionIds, collectionId, {
+          exclusive: exclusiveCollectionMembership
+        })
+      })
+    },
+    [updateWorktreeMeta, worktree.id, worktree.collectionIds, exclusiveCollectionMembership]
+  )
+  const handleRemoveFromCollection = useCallback(
+    (collectionId: string) => {
+      void updateWorktreeMeta(worktree.id, {
+        collectionIds: (worktree.collectionIds ?? []).filter((id) => id !== collectionId)
+      })
+    },
+    [updateWorktreeMeta, worktree.id, worktree.collectionIds]
+  )
+  const handleSubmitNewCollection = useCallback(
+    async (name: string) => {
+      const created = await createCollection(name)
+      if (created) {
+        await updateWorktreeMeta(worktree.id, {
+          collectionIds: assignCollectionMembership(worktree.collectionIds, created.id, {
+            exclusive: exclusiveCollectionMembership
+          })
+        })
+      }
+    },
+    [
+      createCollection,
+      updateWorktreeMeta,
+      worktree.id,
+      worktree.collectionIds,
+      exclusiveCollectionMembership
+    ]
+  )
   const sleepableWorktrees = useMemo(
     () =>
       activeContextWorktrees.filter((item) =>
@@ -899,6 +957,64 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
                   ) : null}
                 </>
               ) : null}
+              {!folderWorkspaceId ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger disabled={isDeleting}>
+                      <Layers className="size-3.5" />
+                      {exclusiveCollectionMembership && memberCollections.length > 0
+                        ? translate(
+                            'auto.components.sidebar.WorktreeContextMenu.moveToCollection',
+                            'Move to Collection'
+                          )
+                        : translate(
+                            'auto.components.sidebar.WorktreeContextMenu.addToCollection',
+                            'Add to Collection'
+                          )}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-48">
+                      {addableCollections.map((collection) => (
+                        <DropdownMenuItem
+                          key={collection.id}
+                          onSelect={() => handleAddToCollection(collection.id)}
+                        >
+                          <span className="max-w-48 truncate">{collection.name}</span>
+                        </DropdownMenuItem>
+                      ))}
+                      {addableCollections.length > 0 ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuItem onSelect={() => setCreateCollectionDialogOpen(true)}>
+                        <Plus className="size-3.5" />
+                        {translate(
+                          'auto.components.sidebar.WorktreeContextMenu.newCollection',
+                          'New Collection…'
+                        )}
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  {memberCollections.length > 0 ? (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger disabled={isDeleting}>
+                        <CircleX className="size-3.5" />
+                        {translate(
+                          'auto.components.sidebar.WorktreeContextMenu.removeFromCollection',
+                          'Remove from Collection'
+                        )}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-48">
+                        {memberCollections.map((collection) => (
+                          <DropdownMenuItem
+                            key={collection.id}
+                            onSelect={() => handleRemoveFromCollection(collection.id)}
+                          >
+                            <span className="max-w-48 truncate">{collection.name}</span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  ) : null}
+                </>
+              ) : null}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={handleOpenParentPicker}
@@ -1051,6 +1167,21 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
         confirmLabel="Create"
         onOpenChange={setCreateGroupDialogOpen}
         onSubmit={handleSubmitNewProjectGroup}
+      />
+      <ProjectGroupNameDialog
+        open={createCollectionDialogOpen}
+        title={translate(
+          'auto.components.sidebar.WorktreeContextMenu.newCollectionTitle',
+          'New Collection'
+        )}
+        description={translate(
+          'auto.components.sidebar.WorktreeContextMenu.newCollectionDescription',
+          'Create a collection and add this worktree to it.'
+        )}
+        initialName=""
+        confirmLabel="Create"
+        onOpenChange={setCreateCollectionDialogOpen}
+        onSubmit={handleSubmitNewCollection}
       />
       <WorktreeParentPickerPopover
         open={parentPicker !== null}

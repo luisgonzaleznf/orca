@@ -62,6 +62,7 @@ import type {
   Repo,
   FolderWorkspace,
   ProjectGroup,
+  Collection,
   ProjectOrderBy,
   WorktreeLineage,
   WorktreeMeta,
@@ -94,6 +95,12 @@ import {
   getPinnedWorktreeDisplayPolicy,
   type PinnedWorktreeDisplayPolicy
 } from './worktree-list-groups'
+import {
+  buildCollectionRows,
+  insertCollectionRowsAfterPinned,
+  isCollectionSectionKey
+} from './worktree-list-collections'
+import { assignCollectionMembership } from '../../../../shared/collections'
 import {
   estimateRenderRowSize,
   extractWorktreeVirtualRowIndexes,
@@ -235,6 +242,8 @@ import type { PendingSidebarRowReveal, PendingSidebarWorktreeReveal } from '@/st
 import { getRepositoryIconSectionId } from '@/components/settings/repository-settings-targets'
 import { keybindingMatchesAction } from '../../../../shared/keybindings'
 import { ProjectGroupNameDialog } from './ProjectGroupNameDialog'
+import { CollectionDeleteDialog } from './CollectionDeleteDialog'
+import { AddCollectionDialog } from './AddCollectionDialog'
 import { ProjectGroupDeleteDialog } from './ProjectGroupDeleteDialog'
 import { selectProjectGroupRemovalTargets } from '@/store/slices/project-group-removal-targets'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
@@ -316,6 +325,7 @@ export {
 type ProjectGroupNameDialogState =
   | { type: 'create-from-repo'; repo: Repo }
   | { type: 'rename'; groupId: string; currentName: string }
+  | { type: 'collection-rename'; collectionId: string; currentName: string }
 
 type ProjectGroupDeleteDialogState = {
   groupId: string
@@ -335,6 +345,7 @@ function useReusedArrayIdentity<T>(next: T[]): T[] {
 const SORT_SETTLE_MS = 3_000
 const USER_SCROLL_MEASUREMENT_ADJUSTMENT_SUPPRESS_MS = 500
 const EMPTY_PROJECT_GROUPS: readonly ProjectGroup[] = []
+const EMPTY_COLLECTIONS: readonly Collection[] = []
 const EMPTY_AGENT_STATUS_BY_PANE_KEY: AppState['agentStatusByPaneKey'] = {}
 const EMPTY_WORKTREE_ID_SET: ReadonlySet<string> = new Set()
 const EMPTY_TABS_BY_WORKTREE: AppState['tabsByWorktree'] = {}
@@ -657,6 +668,10 @@ type VirtualizedWorktreeViewportProps = {
   handleRemoveProjectFromGroup: (repo: Repo) => void
   handleRenameProjectGroup: (groupId: string, currentName: string) => void
   handleDeleteProjectGroup: (groupId: string, groupName: string) => void
+  handleRenameCollection: (collectionId: string, currentName: string) => void
+  handleDeleteCollection: (collectionId: string, name: string) => void
+  handleAddWorktreesToCollection: (collection: Collection) => void
+  onDropWorktreesOnCollection: (worktreeIds: readonly string[], collectionId: string) => void
   handleCreateFolderWorkspace: (projectGroup: ProjectGroup) => void
   activeModal: string
   pendingRevealWorktree: PendingSidebarWorktreeReveal | null
@@ -982,7 +997,7 @@ function updateLatestWorktreeStatusDropTarget(
   preview: WorktreeSidebarDropPreview | null
 ): void {
   drag.latestStatusDropTarget =
-    target.status || target.isPinDrop || target.lineageParentId
+    target.status || target.isPinDrop || target.lineageParentId || target.collectionId
       ? {
           target,
           preview,
@@ -1010,6 +1025,15 @@ function getPointerDropStatusTarget(args: {
   if (pinTarget && args.container.contains(pinTarget)) {
     return { status: null, isPinDrop: true, lineageParentId: null }
   }
+  const collectionTarget = target.closest<HTMLElement>('[data-collection-drop-id]')
+  if (collectionTarget && args.container.contains(collectionTarget)) {
+    return {
+      status: null,
+      isPinDrop: false,
+      lineageParentId: null,
+      collectionId: collectionTarget.dataset.collectionDropId ?? null
+    }
+  }
   const lineageParentId = getWorktreeLineageDropTargetId({
     container: args.container,
     target,
@@ -1031,7 +1055,7 @@ function shouldPreferSidebarStatusDropTarget(args: {
   target: WorktreeSidebarStatusDropTarget
   workspaceStatuses: readonly WorkspaceStatusDefinition[]
 }): boolean {
-  if (args.target.isPinDrop) {
+  if (args.target.isPinDrop || args.target.collectionId) {
     return true
   }
   if (!args.target.status) {
@@ -1240,7 +1264,11 @@ export function getWorktreeDragGroups(rows: HostSectionRow[]): WorktreeDragGroup
   let current: { key: string; ids: string[] } | null = null
   const naturalWorktreeIds = new Set(
     rows.flatMap((row) =>
-      row.type === 'item' && row.sectionKey !== PINNED_GROUP_KEY ? [row.worktree.id] : []
+      row.type === 'item' &&
+      row.sectionKey !== PINNED_GROUP_KEY &&
+      !isCollectionSectionKey(row.sectionKey)
+        ? [row.worktree.id]
+        : []
     )
   )
 
@@ -1257,6 +1285,11 @@ export function getWorktreeDragGroups(rows: HostSectionRow[]): WorktreeDragGroup
       row.type === 'pending-creation' ||
       row.type === 'folder-workspace'
     ) {
+      continue
+    }
+    // Why: collection rows are duplicates — reordering them would commit global
+    // manualOrder writes against the wrong neighbors.
+    if (isCollectionSectionKey(row.sectionKey)) {
       continue
     }
     if (row.sectionKey === PINNED_GROUP_KEY && naturalWorktreeIds.has(row.worktree.id)) {
@@ -1288,7 +1321,11 @@ export function getWorktreeDragIndexes(rows: readonly HostSectionRow[]): {
   const groupIndexes = new Map<string, number>()
   const naturalWorktreeIds = new Set(
     rows.flatMap((row) =>
-      row.type === 'item' && row.sectionKey !== PINNED_GROUP_KEY ? [row.worktree.id] : []
+      row.type === 'item' &&
+      row.sectionKey !== PINNED_GROUP_KEY &&
+      !isCollectionSectionKey(row.sectionKey)
+        ? [row.worktree.id]
+        : []
     )
   )
   for (const row of rows) {
@@ -1297,6 +1334,10 @@ export function getWorktreeDragIndexes(rows: readonly HostSectionRow[]): {
       continue
     }
     if (row.type !== 'item') {
+      continue
+    }
+    // Why: no groupKeyByRowKey entry means collection rows never arm reorder drag.
+    if (isCollectionSectionKey(row.sectionKey)) {
       continue
     }
     if (row.sectionKey === PINNED_GROUP_KEY && naturalWorktreeIds.has(row.worktree.id)) {
@@ -1345,6 +1386,10 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
   handleRemoveProjectFromGroup,
   handleRenameProjectGroup,
   handleDeleteProjectGroup,
+  handleRenameCollection,
+  handleDeleteCollection,
+  handleAddWorktreesToCollection,
+  onDropWorktreesOnCollection,
   handleCreateFolderWorkspace,
   activeModal,
   pendingRevealWorktree,
@@ -3259,7 +3304,9 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                 draggedIds: drag.reorderDraggedIds
               })
             : null
-          if (preferredStatusTarget.isPinDrop) {
+          if (preferredStatusTarget.collectionId) {
+            onDropWorktreesOnCollection(drag.draggedIds, preferredStatusTarget.collectionId)
+          } else if (preferredStatusTarget.isPinDrop) {
             onPinWorktrees(drag.draggedIds)
           } else if (preferredStatusTarget.status) {
             if (statusDrop) {
@@ -3310,6 +3357,8 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
           })
           if (target.lineageParentId) {
             commitWorktreeLineageParentDrop(drag.draggedIds, target.lineageParentId)
+          } else if (target.collectionId) {
+            onDropWorktreesOnCollection(drag.draggedIds, target.collectionId)
           } else if (target.isPinDrop) {
             onPinWorktrees(drag.draggedIds)
           } else if (target.status) {
@@ -3356,6 +3405,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     onMoveWorktreesToStatus,
     onMoveWorktreesToStatusAtIndex,
     onDropWorktreesOnWorkspaceBoard,
+    onDropWorktreesOnCollection,
     onPinWorktrees,
     onReorderWorktrees,
     onWorkspaceBoardDragPreviewCommit,
@@ -4119,6 +4169,165 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                     }
                     dragging={hostDrag.state.draggingHostId === row.hostId}
                   />
+                </div>
+              )
+            }
+
+            if (row.type === 'header' && row.collection) {
+              const collection = row.collection
+              const isCollectionRepoSubheader = row.repo !== undefined
+              const isHeaderCollapsed = collapsedGroups.has(row.key)
+              const hasHeaderTopSpacing = shouldUseHeaderTopSpacing({
+                rows: renderRows,
+                index: vItem.index,
+                firstHeaderIndex
+              })
+              return (
+                <div
+                  key={vItem.key}
+                  role="presentation"
+                  data-worktree-virtual-row
+                  data-worktree-virtual-row-key={String(vItem.key)}
+                  data-worktree-virtual-row-start={vItem.start}
+                  data-index={vItem.index}
+                  ref={measureVirtualRowElement}
+                  className={cn('absolute left-0 right-0 top-0', hasHeaderTopSpacing && 'pt-1')}
+                  style={{ transform: getVirtualRowTransform(vItem.start) }}
+                >
+                  <div
+                    id={getWorktreeOptionId(row.key)}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={!isHeaderCollapsed}
+                    data-collection-header-id={
+                      isCollectionRepoSubheader ? undefined : collection.id
+                    }
+                    data-collection-drop-id={collection.id}
+                    className="group relative flex h-7 w-full cursor-pointer items-center gap-1.5 pr-2 text-left transition-all"
+                    style={{
+                      paddingLeft: isCollectionRepoSubheader
+                        ? getProjectGroupHeaderPaddingLeft(1)
+                        : WORKTREE_SECTION_HEADER_PADDING_LEFT
+                    }}
+                    onClick={() => toggleGroupWithScrollAnchor(row.key)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleGroupWithScrollAnchor(row.key)
+                      }
+                    }}
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch">
+                      {isCollectionRepoSubheader && row.repo ? (
+                        <div className="flex size-4 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground">
+                          <RepoIconGlyph
+                            repoIcon={row.repo.repoIcon}
+                            color={row.repo.badgeColor}
+                            className="size-4"
+                            iconClassName="size-3.5"
+                          />
+                        </div>
+                      ) : row.icon ? (
+                        <div
+                          className={cn(
+                            'flex size-4 shrink-0 items-center justify-center rounded-[4px]',
+                            row.tone
+                          )}
+                          style={collection.color ? { color: collection.color } : undefined}
+                        >
+                          <row.icon className="size-3" />
+                        </div>
+                      ) : null}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <div className="min-w-0 truncate text-[13px] font-semibold leading-none">
+                            {row.label}
+                          </div>
+                          <span className="shrink-0 text-[11px] leading-none text-muted-foreground">
+                            {row.count}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <ProjectHeaderActions>
+                      <div
+                        className="flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
+                        aria-hidden
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          toggleGroupWithScrollAnchor(row.key)
+                        }}
+                      >
+                        <ChevronDown
+                          className={cn(
+                            'size-3.5 transition-transform',
+                            isHeaderCollapsed && '-rotate-90'
+                          )}
+                        />
+                      </div>
+                      {!isCollectionRepoSubheader ? (
+                        <DropdownMenu modal={false}>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              className={REPO_HEADER_ACTION_BUTTON_CLASS}
+                              data-repo-header-action=""
+                              aria-label={translate(
+                                'auto.components.sidebar.WorktreeList.collectionActionsLabel',
+                                'Collection actions for {{value0}}',
+                                { value0: row.label }
+                              )}
+                              onClick={(event) => event.stopPropagation()}
+                              onKeyDown={stopRepoHeaderKeyboardToggle}
+                              onPointerDown={handleRepoHeaderActionPointerDown}
+                            >
+                              <Ellipsis className="size-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            side="bottom"
+                            sideOffset={6}
+                            onPointerDown={stopRepoHeaderMenuEvent}
+                            onMouseDown={stopRepoHeaderMenuEvent}
+                            onPointerUp={stopRepoHeaderMenuEvent}
+                            onMouseUp={stopRepoHeaderMenuEvent}
+                            onClick={stopRepoHeaderMenuEvent}
+                            onKeyDown={stopRepoHeaderMenuEvent}
+                          >
+                            <DropdownMenuItem
+                              onSelect={() => handleAddWorktreesToCollection(collection)}
+                            >
+                              {translate(
+                                'auto.components.sidebar.WorktreeList.collectionAddWorktreesItem',
+                                'Add worktrees…'
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => handleRenameCollection(collection.id, row.label)}
+                            >
+                              {translate(
+                                'auto.components.sidebar.WorktreeList.collectionRenameItem',
+                                'Rename collection'
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onSelect={() => handleDeleteCollection(collection.id, row.label)}
+                            >
+                              {translate(
+                                'auto.components.sidebar.WorktreeList.collectionDeleteItem',
+                                'Delete collection'
+                              )}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
+                    </ProjectHeaderActions>
+                  </div>
                 </div>
               )
             }
@@ -5572,6 +5781,9 @@ const WorktreeList = React.memo(function WorktreeList({
     [projectHostSetupProjection]
   )
   const projectGroups = useAppStore((s) => s.projectGroups ?? EMPTY_PROJECT_GROUPS)
+  const collections = useAppStore((s) => s.collections ?? EMPTY_COLLECTIONS)
+  const updateCollection = useAppStore((s) => s.updateCollection)
+  const deleteCollection = useAppStore((s) => s.deleteCollection)
   const folderWorkspaces = useAppStore((s) => s.folderWorkspaces)
   const effectiveCollapsedGroups = useMemo(() => {
     if (!agentSendTargetWorktreeId) {
@@ -5738,33 +5950,51 @@ const WorktreeList = React.memo(function WorktreeList({
     [hostOptions]
   )
 
-  const rows: Row[] = useMemo(
+  // Why: collections are additive sections above EVERY grouping mode (like the
+  // Pinned section, they are orthogonal to Group by); the list below stays
+  // byte-identical (COLLECTIONS R9/D2).
+  const collectionRows: Row[] = useMemo(
     () =>
-      buildRows(
-        groupBy,
+      buildCollectionRows({
+        collections,
         worktrees,
         repoMap,
-        prCache,
-        effectiveCollapsedGroups,
-        repoOrder,
-        workspaceStatuses,
-        projectOrderBy,
-        worktreeLineageById,
-        worktreeMap,
-        true,
-        settings,
-        visibleProjectGroupsForRows,
-        placeholderRepoIds,
-        importedWorktreesByRepo,
-        newExternalWorktreesInboxByRepo,
-        pendingCreations,
-        projectGrouping,
-        visibleFolderWorkspacesForRows,
-        hostLabelById,
-        defaultHostId,
-        pinnedDisplayPolicy
+        collapsedGroups: effectiveCollapsedGroups,
+        repoOrder
+      }),
+    [collections, worktrees, repoMap, effectiveCollapsedGroups, repoOrder]
+  )
+  const rows: Row[] = useMemo(
+    () =>
+      insertCollectionRowsAfterPinned(
+        buildRows(
+          groupBy,
+          worktrees,
+          repoMap,
+          prCache,
+          effectiveCollapsedGroups,
+          repoOrder,
+          workspaceStatuses,
+          projectOrderBy,
+          worktreeLineageById,
+          worktreeMap,
+          true,
+          settings,
+          visibleProjectGroupsForRows,
+          placeholderRepoIds,
+          importedWorktreesByRepo,
+          newExternalWorktreesInboxByRepo,
+          pendingCreations,
+          projectGrouping,
+          visibleFolderWorkspacesForRows,
+          hostLabelById,
+          defaultHostId,
+          pinnedDisplayPolicy
+        ),
+        collectionRows
       ),
     [
+      collectionRows,
       groupBy,
       worktrees,
       repoMap,
@@ -6185,6 +6415,11 @@ const WorktreeList = React.memo(function WorktreeList({
     useState<ProjectGroupNameDialogState | null>(null)
   const [projectGroupDeleteDialog, setProjectGroupDeleteDialog] =
     useState<ProjectGroupDeleteDialogState | null>(null)
+  const [collectionDeleteDialog, setCollectionDeleteDialog] = useState<{
+    collectionId: string
+    name: string
+  } | null>(null)
+  const [addWorktreesCollection, setAddWorktreesCollection] = useState<Collection | null>(null)
 
   const handleCreateGroupFromRepo = useCallback((repo: Repo) => {
     setProjectGroupNameDialog({ type: 'create-from-repo', repo })
@@ -6211,6 +6446,43 @@ const WorktreeList = React.memo(function WorktreeList({
     setProjectGroupNameDialog({ type: 'rename', groupId, currentName })
   }, [])
 
+  const handleRenameCollection = useCallback((collectionId: string, currentName: string) => {
+    setProjectGroupNameDialog({ type: 'collection-rename', collectionId, currentName })
+  }, [])
+
+  const handleDeleteCollection = useCallback((collectionId: string, name: string) => {
+    setCollectionDeleteDialog({ collectionId, name })
+  }, [])
+
+  const handleAddWorktreesToCollection = useCallback((collection: Collection) => {
+    setAddWorktreesCollection(collection)
+  }, [])
+
+  const handleDropWorktreesOnCollection = useCallback(
+    (worktreeIds: readonly string[], collectionId: string) => {
+      for (const worktreeId of worktreeIds) {
+        const worktree = worktreeMap.get(worktreeId)
+        if (!worktree || worktree.collectionIds?.includes(collectionId)) {
+          continue
+        }
+        void updateWorktreeMeta(worktreeId, {
+          collectionIds: assignCollectionMembership(worktree.collectionIds, collectionId, {
+            exclusive: !worktree.isMainWorktree
+          })
+        })
+      }
+    },
+    [worktreeMap, updateWorktreeMeta]
+  )
+
+  const handleConfirmDeleteCollection = useCallback(async () => {
+    if (!collectionDeleteDialog) {
+      return
+    }
+    await deleteCollection(collectionDeleteDialog.collectionId)
+    setCollectionDeleteDialog(null)
+  }, [collectionDeleteDialog, deleteCollection])
+
   const handleSubmitProjectGroupName = useCallback(
     async (name: string) => {
       if (!projectGroupNameDialog) {
@@ -6223,9 +6495,19 @@ const WorktreeList = React.memo(function WorktreeList({
         }
         return
       }
+      if (projectGroupNameDialog.type === 'collection-rename') {
+        await updateCollection(projectGroupNameDialog.collectionId, { name })
+        return
+      }
       await updateProjectGroup(projectGroupNameDialog.groupId, { name })
     },
-    [createProjectGroup, moveProjectToGroup, projectGroupNameDialog, updateProjectGroup]
+    [
+      createProjectGroup,
+      moveProjectToGroup,
+      projectGroupNameDialog,
+      updateProjectGroup,
+      updateCollection
+    ]
   )
 
   const projectGroupDeleteTargets = useMemo(() => {
@@ -6685,29 +6967,45 @@ const WorktreeList = React.memo(function WorktreeList({
       <ProjectGroupNameDialog
         open={projectGroupNameDialog !== null}
         title={
-          projectGroupNameDialog?.type === 'rename'
-            ? translate('auto.components.sidebar.WorktreeList.f9dc6cc5d3', 'Rename Project Group')
-            : translate('auto.components.sidebar.WorktreeList.13757c053c', 'New Project Group')
+          projectGroupNameDialog?.type === 'collection-rename'
+            ? translate(
+                'auto.components.sidebar.WorktreeList.collectionRenameTitle',
+                'Rename Collection'
+              )
+            : projectGroupNameDialog?.type === 'rename'
+              ? translate('auto.components.sidebar.WorktreeList.f9dc6cc5d3', 'Rename Project Group')
+              : translate('auto.components.sidebar.WorktreeList.13757c053c', 'New Project Group')
         }
         description={
-          projectGroupNameDialog?.type === 'rename'
+          projectGroupNameDialog?.type === 'collection-rename'
             ? translate(
-                'auto.components.sidebar.WorktreeList.bc1460beb3',
-                'Update the group name shown in the sidebar.'
+                'auto.components.sidebar.WorktreeList.collectionRenameDescription',
+                'Update the collection name shown in the sidebar.'
               )
-            : translate(
-                'auto.components.sidebar.WorktreeList.d880ea0744',
-                'Create a group and move this project into it.'
-              )
+            : projectGroupNameDialog?.type === 'rename'
+              ? translate(
+                  'auto.components.sidebar.WorktreeList.bc1460beb3',
+                  'Update the group name shown in the sidebar.'
+                )
+              : translate(
+                  'auto.components.sidebar.WorktreeList.d880ea0744',
+                  'Create a group and move this project into it.'
+                )
         }
         initialName={
-          projectGroupNameDialog?.type === 'rename'
+          projectGroupNameDialog?.type === 'rename' ||
+          projectGroupNameDialog?.type === 'collection-rename'
             ? projectGroupNameDialog.currentName
             : projectGroupNameDialog
               ? `${projectGroupNameDialog.repo.displayName} group`
               : ''
         }
-        confirmLabel={projectGroupNameDialog?.type === 'rename' ? 'Rename' : 'Create'}
+        confirmLabel={
+          projectGroupNameDialog?.type === 'rename' ||
+          projectGroupNameDialog?.type === 'collection-rename'
+            ? 'Rename'
+            : 'Create'
+        }
         onOpenChange={(open) => {
           if (!open) {
             setProjectGroupNameDialog(null)
@@ -6764,6 +7062,25 @@ const WorktreeList = React.memo(function WorktreeList({
         }}
         onConfirm={handleConfirmDeleteProjectGroup}
       />
+      <CollectionDeleteDialog
+        open={collectionDeleteDialog !== null}
+        collectionName={collectionDeleteDialog?.name ?? ''}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCollectionDeleteDialog(null)
+          }
+        }}
+        onConfirm={handleConfirmDeleteCollection}
+      />
+      <AddCollectionDialog
+        open={addWorktreesCollection !== null}
+        collection={addWorktreesCollection}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAddWorktreesCollection(null)
+          }
+        }}
+      />
       <VirtualizedWorktreeViewport
         key={viewportResetKey}
         rows={sectionRows}
@@ -6791,6 +7108,10 @@ const WorktreeList = React.memo(function WorktreeList({
         handleRemoveProjectFromGroup={handleRemoveProjectFromGroup}
         handleRenameProjectGroup={handleRenameProjectGroup}
         handleDeleteProjectGroup={handleDeleteProjectGroup}
+        handleRenameCollection={handleRenameCollection}
+        handleDeleteCollection={handleDeleteCollection}
+        handleAddWorktreesToCollection={handleAddWorktreesToCollection}
+        onDropWorktreesOnCollection={handleDropWorktreesOnCollection}
         handleCreateFolderWorkspace={handleCreateFolderWorkspace}
         activeModal={activeModal}
         pendingRevealWorktree={pendingRevealWorktree}

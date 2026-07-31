@@ -1,9 +1,10 @@
-import React from 'react'
-import { FolderPlus, Plus } from 'lucide-react'
+import React, { useState } from 'react'
+import { FolderPlus, Layers, Plus } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import SidebarWorkspaceOptionsMenu from './SidebarWorkspaceOptionsMenu'
+import { AddCollectionDialog } from './AddCollectionDialog'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { openWorkspaceCreationComposerWithTourHandoff } from '../contextual-tours/workspace-creation-tour-handoff'
 import { translate } from '@/i18n/i18n'
@@ -19,6 +20,7 @@ const SidebarHeader = React.memo(function SidebarHeader({
   const newWorktreeShortcutLabel = useShortcutLabel('workspace.create')
   const groupBy = useAppStore((s) => s.groupBy)
   const canCreateWorkspace = useAppStore((s) => s.repos.length > 0)
+  const [newCollectionDialogOpen, setNewCollectionDialogOpen] = useState(false)
   const sidebarTitle = groupBy === 'repo' ? 'Projects' : 'Workspaces'
 
   return (
@@ -36,6 +38,26 @@ const SidebarHeader = React.memo(function SidebarHeader({
           preserveWorkspaceBoardOpen
           onMenuOpenChange={onWorkspaceBoardMenuOpenChange}
         />
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground"
+              aria-label={translate(
+                'auto.components.sidebar.SidebarHeader.newCollection',
+                'Add Collection'
+              )}
+              onClick={() => setNewCollectionDialogOpen(true)}
+            >
+              <Layers className="size-3.5" strokeWidth={2.25} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={6}>
+            {translate('auto.components.sidebar.SidebarHeader.newCollection', 'Add Collection')}
+          </TooltipContent>
+        </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -94,6 +116,10 @@ const SidebarHeader = React.memo(function SidebarHeader({
           </TooltipContent>
         </Tooltip>
       </div>
+      <AddCollectionDialog
+        open={newCollectionDialogOpen}
+        onOpenChange={setNewCollectionDialogOpen}
+      />
     </div>
   )
 })
