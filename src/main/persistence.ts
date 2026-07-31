@@ -3534,19 +3534,25 @@ export class Store {
     const repos = clearMissingProjectGroupMemberships(result.repos, result.projectGroups ?? [])
     const collectionIdSet = new Set((result.collections ?? []).map((collection) => collection.id))
     for (const meta of Object.values(result.worktreeMeta ?? {})) {
-      if (!meta.collectionIds) {
+      if (!('collectionIds' in meta)) {
         continue
       }
-      const pruned = pruneMissingCollectionIds(
-        normalizeCollectionIds(meta.collectionIds),
-        collectionIdSet
-      )
-      if ((pruned?.length ?? 0) !== meta.collectionIds.length) {
-        this.loadNeedsSave = true
-      }
+      const raw = meta.collectionIds
+      const pruned = pruneMissingCollectionIds(normalizeCollectionIds(raw), collectionIdSet)
       if (pruned) {
+        // Why: dedupe/prune reordering counts as a change even at equal length.
+        const unchanged =
+          Array.isArray(raw) &&
+          pruned.length === raw.length &&
+          pruned.every((id, index) => id === raw[index])
+        if (!unchanged) {
+          this.loadNeedsSave = true
+        }
         meta.collectionIds = pruned
       } else {
+        // Why: the key existed with nothing valid ([], dupes-only, garbage) —
+        // deleting it must persist or the stray field survives every restart.
+        this.loadNeedsSave = true
         delete meta.collectionIds
       }
     }

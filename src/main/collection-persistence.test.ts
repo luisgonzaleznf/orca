@@ -152,6 +152,22 @@ describe('Store collections', () => {
     expect(reloaded.getWorktreeMeta('repo-api::/wt/ptal')?.collectionIds).toEqual([approvals.id])
   })
 
+  it('removes an on-disk empty membership array on load', async () => {
+    const store = await createStore()
+    const approvals = store.createCollection({ name: 'Approve PRs' })
+    store.setWorktreeCollectionIds('repo-api::/wt/ptal', [approvals.id])
+    store.flush()
+
+    const raw = readDataFile()
+    raw.worktreeMeta['repo-api::/wt/ptal'].collectionIds = []
+    writeDataFile(raw)
+
+    const reloaded = await createStore()
+    expect(reloaded.getWorktreeMeta('repo-api::/wt/ptal')?.collectionIds).toBeUndefined()
+    reloaded.flush()
+    expect('collectionIds' in readDataFile().worktreeMeta['repo-api::/wt/ptal']).toBe(false)
+  })
+
   it('loads pre-collection data files without changes', async () => {
     const store = await createStore()
     store.createCollection({ name: 'temp' })

@@ -104,7 +104,7 @@ const ERROR_TOAST_DURATION = 60_000
 const SAFE_AUTO_FORK_SYNC_COOLDOWN_MS = 10 * 60 * 1000
 const safeAutoForkSyncAttempts = new Map<string, { attemptedAt: number; promise?: Promise<void> }>()
 const runtimeRepoFetchGenerationByEnvironment = new Map<string, number>()
-type HostCatalogKind = 'project-groups' | 'folder-workspaces'
+type HostCatalogKind = 'project-groups' | 'folder-workspaces' | 'collections'
 type HostCatalogFence = {
   key: string
   generation: number
@@ -2201,8 +2201,18 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
   fetchCollections: async () => {
     try {
       const target = getActiveRuntimeTarget(get().settings)
+      const fence = claimHostCatalogFence(get, 'collections', target)
       const collections = await fetchCollectionsForTarget(target)
-      set({ collections })
+      // Why: collections state is replace-not-merge, so beyond the fence the
+      // focused host must still be the fetched one or a stale list wins.
+      const isFetchCurrent = (): boolean =>
+        isHostCatalogFenceCurrent(get, fence) &&
+        getRuntimeTargetHostId(getActiveRuntimeTarget(get().settings)) ===
+          getRuntimeTargetHostId(fence.target)
+      if (!isFetchCurrent()) {
+        return
+      }
+      set((current) => (isFetchCurrent() ? { collections } : current))
     } catch (err) {
       // Why: older paired runtimes predate collection.* methods; keep the sidebar usable.
       console.warn('Failed to fetch collections:', err)
@@ -2616,39 +2626,38 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
             ).deleted
       if (deleted) {
         // Why: memberships were stripped server-side; mirror locally so rows
-        // vanish without waiting for the next worktree refresh.
+        // vanish without waiting for the next worktree refresh. Computed before
+        // set() so the updater stays a pure state transform.
         const collectionGroupPrefix = `collection:${collectionId}`
-        let persistedCollapsedGroups: string[] | null = null
+        const state = get()
+        const nextWorktreesByRepo = Object.fromEntries(
+          Object.entries(state.worktreesByRepo).map(([repoId, worktrees]) => [
+            repoId,
+            worktrees.some((worktree) => worktree.collectionIds?.includes(collectionId))
+              ? worktrees.map((worktree) =>
+                  worktree.collectionIds?.includes(collectionId)
+                    ? {
+                        ...worktree,
+                        collectionIds: worktree.collectionIds.filter((id) => id !== collectionId)
+                      }
+                    : worktree
+                )
+              : worktrees
+          ])
+        )
+        const nextCollapsedGroups = new Set(
+          [...state.collapsedGroups].filter(
+            (key) => key !== collectionGroupPrefix && !key.startsWith(`${collectionGroupPrefix}:`)
+          )
+        )
+        const collapsedGroupsChanged = nextCollapsedGroups.size !== state.collapsedGroups.size
         set((s) => ({
           collections: s.collections.filter((collection) => collection.id !== collectionId),
-          worktreesByRepo: Object.fromEntries(
-            Object.entries(s.worktreesByRepo).map(([repoId, worktrees]) => [
-              repoId,
-              worktrees.map((worktree) =>
-                worktree.collectionIds?.includes(collectionId)
-                  ? {
-                      ...worktree,
-                      collectionIds: worktree.collectionIds.filter((id) => id !== collectionId)
-                    }
-                  : worktree
-              )
-            ])
-          ),
-          collapsedGroups: (() => {
-            const next = new Set(
-              [...s.collapsedGroups].filter(
-                (key) =>
-                  key !== collectionGroupPrefix && !key.startsWith(`${collectionGroupPrefix}:`)
-              )
-            )
-            if (next.size !== s.collapsedGroups.size) {
-              persistedCollapsedGroups = [...next]
-            }
-            return next
-          })()
+          worktreesByRepo: nextWorktreesByRepo,
+          ...(collapsedGroupsChanged ? { collapsedGroups: nextCollapsedGroups } : {})
         }))
-        if (persistedCollapsedGroups) {
-          window.api.ui.set({ collapsedGroups: persistedCollapsedGroups }).catch(console.error)
+        if (collapsedGroupsChanged) {
+          window.api.ui.set({ collapsedGroups: [...nextCollapsedGroups] }).catch(console.error)
         }
       }
       return deleted

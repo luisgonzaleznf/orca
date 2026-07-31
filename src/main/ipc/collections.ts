@@ -3,15 +3,17 @@ import { z } from 'zod'
 import type { Collection } from '../../shared/types'
 import type { Store } from '../persistence'
 
+// Why: nonempty names match the runtime RPC contract (requiredString) so both
+// transports reject '' instead of silently renaming to the fallback.
 const CollectionCreateArgs = z.object({
-  name: z.string(),
+  name: z.string().min(1),
   color: z.string().nullable().optional()
 })
 
 const CollectionUpdateArgs = z.object({
-  collectionId: z.string(),
+  collectionId: z.string().min(1),
   updates: z.object({
-    name: z.string().optional(),
+    name: z.string().min(1).optional(),
     color: z.string().nullable().optional(),
     isCollapsed: z.boolean().optional(),
     order: z.number().optional()

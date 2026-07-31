@@ -4643,6 +4643,7 @@
           "sidebarRowMissing": "Target no longer exists",
           "failedUnnestWorkspace": "Failed to unnest workspace",
           "collectionActionsLabel": "Collection actions for {{value0}}",
+          "collectionDeleteFailed": "Failed to delete collection",
           "collectionDeleteItem": "Delete collection",
           "collectionRenameDescription": "Update the collection name shown in the sidebar.",
           "collectionRenameItem": "Rename collection",
@@ -5123,6 +5124,7 @@
           "noProjects": "No projects yet — add one first.",
           "creating": "Creating worktrees…",
           "createWorktreeFailed": "Could not create a worktree in {{value0}}",
+          "addWorktreeFailed": "Could not add {{value0}} to the collection",
           "nameLabel": "Name",
           "projectsLabel": "Projects"
         }

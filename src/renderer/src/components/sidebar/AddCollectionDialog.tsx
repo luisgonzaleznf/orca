@@ -139,11 +139,23 @@ export function AddCollectionDialog({
         .flatMap((group) => group.worktrees)
         .filter((worktree) => selectedWorktreeIds.has(worktree.id))
       for (const worktree of selected) {
-        await updateWorktreeMeta(worktree.id, {
-          collectionIds: assignCollectionMembership(worktree.collectionIds, collectionId, {
-            exclusive: !worktree.isMainWorktree
+        try {
+          await updateWorktreeMeta(worktree.id, {
+            collectionIds: assignCollectionMembership(worktree.collectionIds, collectionId, {
+              exclusive: !worktree.isMainWorktree
+            })
           })
-        })
+        } catch (error) {
+          // Why: keep filing the rest of the batch; per-worktree toasts show what failed.
+          console.error('Failed to add worktree to collection:', error)
+          toast.error(
+            translate(
+              'auto.components.sidebar.AddCollectionDialog.addWorktreeFailed',
+              'Could not add {{value0}} to the collection',
+              { value0: worktree.displayName }
+            )
+          )
+        }
       }
     },
     [newWorktreeRepoIds, createWorktree, updateWorktreeMeta, repos, repoGroups, selectedWorktreeIds]

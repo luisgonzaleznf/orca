@@ -709,7 +709,7 @@ const api = {
     create: (args) => ipcRenderer.invoke('collections:create', args),
     update: (args) => ipcRenderer.invoke('collections:update', args),
     delete: (args) => ipcRenderer.invoke('collections:delete', args)
-  },
+  } satisfies PreloadApi['collections'],
   projectGroups: {
     list: () => ipcRenderer.invoke('projectGroups:list'),
     create: (args) => ipcRenderer.invoke('projectGroups:create', args),

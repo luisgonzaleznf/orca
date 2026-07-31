@@ -13,7 +13,7 @@ The missing grouping axis is the **worktree**.
 
 A `Collection` is a named, manual, purely visual sidebar section that holds worktrees across repos, rendered between the Pinned section and the project list in **every** grouping mode (collections are orthogonal to Group by, like Pinned — not a fifth segment):
 
-```
+```text
 ▾ Approve PRs                ← collection
     analytics
         tech-6481-route-skills

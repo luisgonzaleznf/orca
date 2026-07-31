@@ -1568,7 +1568,11 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     () =>
       new Set(
         rows.flatMap((row) =>
-          row.type === 'item' && row.sectionKey !== PINNED_GROUP_KEY ? [row.worktree.id] : []
+          row.type === 'item' &&
+          row.sectionKey !== PINNED_GROUP_KEY &&
+          !isCollectionSectionKey(row.sectionKey)
+            ? [row.worktree.id]
+            : []
         )
       ),
     [rows]
@@ -1577,9 +1581,12 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     () =>
       rows
         .filter((row): row is WorktreeItemRow => row.type === 'item')
+        // Why: collection rows duplicate natural rows and never reorder, so
+        // including them would repeat ids in the expanded lineage drag set.
         .filter(
           (row) =>
-            row.sectionKey !== PINNED_GROUP_KEY || !naturalDragWorktreeIds.has(row.worktree.id)
+            !isCollectionSectionKey(row.sectionKey) &&
+            (row.sectionKey !== PINNED_GROUP_KEY || !naturalDragWorktreeIds.has(row.worktree.id))
         )
         .map((row) => ({ worktreeId: row.worktree.id, depth: row.depth })),
     [naturalDragWorktreeIds, rows]
@@ -6443,26 +6450,39 @@ const WorktreeList = React.memo(function WorktreeList({
 
   const handleDropWorktreesOnCollection = useCallback(
     (worktreeIds: readonly string[], collectionId: string) => {
+      const updates = new Map<string, { collectionIds: string[] }>()
       for (const worktreeId of worktreeIds) {
         const worktree = worktreeMap.get(worktreeId)
         if (!worktree || worktree.collectionIds?.includes(collectionId)) {
           continue
         }
-        void updateWorktreeMeta(worktreeId, {
+        updates.set(worktreeId, {
           collectionIds: assignCollectionMembership(worktree.collectionIds, collectionId, {
             exclusive: !worktree.isMainWorktree
           })
         })
       }
+      if (updates.size > 0) {
+        void updateWorktreesMeta(updates)
+      }
     },
-    [worktreeMap, updateWorktreeMeta]
+    [worktreeMap, updateWorktreesMeta]
   )
 
   const handleConfirmDeleteCollection = useCallback(async () => {
     if (!collectionDeleteDialog) {
       return
     }
-    await deleteCollection(collectionDeleteDialog.collectionId)
+    const deleted = await deleteCollection(collectionDeleteDialog.collectionId)
+    if (!deleted) {
+      toast.error(
+        translate(
+          'auto.components.sidebar.WorktreeList.collectionDeleteFailed',
+          'Failed to delete collection'
+        )
+      )
+      return
+    }
     setCollectionDeleteDialog(null)
   }, [collectionDeleteDialog, deleteCollection])
 
