@@ -8,6 +8,7 @@ import type {
   Project,
   ProjectUpdateArgs,
   Repo,
+  Collection,
   ProjectGroup,
   ProjectHostSetup,
   FolderWorkspace,
@@ -1158,6 +1159,19 @@ async function fetchProjectGroupCatalogForTarget(
   }
 }
 
+async function fetchCollectionsForTarget(
+  target: ReturnType<typeof getActiveRuntimeTarget>
+): Promise<Collection[]> {
+  return target.kind === 'local'
+    ? await window.api.collections.list()
+    : (
+        await callRuntimeRpc<{ collections: Collection[] }>(target, 'collection.list', undefined, {
+          timeoutMs: 15_000,
+          reuseRecentCompatibilityFailure: true
+        })
+      ).collections
+}
+
 function mergeFetchedProjectGroupCatalog(
   catalog: FetchedProjectGroupCatalog,
   currentProjectGroups: readonly ProjectGroup[]
@@ -1527,6 +1541,7 @@ export type RepoSlice = {
   projects: Project[]
   projectHostSetups: ProjectHostSetup[]
   projectGroups: ProjectGroup[]
+  collections: Collection[]
   folderWorkspaces: FolderWorkspace[]
   folderWorkspacePathStatuses: Record<string, FolderWorkspacePathStatusCacheEntry>
   activeRepoId: string | null
@@ -1539,6 +1554,7 @@ export type RepoSlice = {
   fetchRuntimeEnvironmentRepos: (environmentId: string) => Promise<Repo[]>
   fetchProjectGroups: () => Promise<void>
   fetchProjectGroupsForAllHosts: (options?: AllHostCatalogFetchOptions) => Promise<void>
+  fetchCollections: () => Promise<void>
   fetchFolderWorkspaces: () => Promise<void>
   fetchFolderWorkspacesForAllHosts: (options?: AllHostCatalogFetchOptions) => Promise<void>
   addRepo: () => Promise<Repo | null>
@@ -1576,6 +1592,12 @@ export type RepoSlice = {
     mode: 'group' | 'separate'
   }) => Promise<ProjectGroupImportResult | null>
   createProjectGroup: (name: string) => Promise<ProjectGroup | null>
+  createCollection: (name: string) => Promise<Collection | null>
+  updateCollection: (
+    collectionId: string,
+    updates: Partial<Pick<Collection, 'name' | 'isCollapsed' | 'order' | 'color'>>
+  ) => Promise<Collection | null>
+  deleteCollection: (collectionId: string) => Promise<boolean>
   createFolderWorkspace: (
     args: {
       projectGroupId: string
@@ -1638,6 +1660,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
   projects: [],
   projectHostSetups: [],
   projectGroups: [],
+  collections: [],
   folderWorkspaces: [],
   folderWorkspacePathStatuses: {},
   activeRepoId: null,
@@ -1927,6 +1950,18 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     } catch (err) {
       console.error('Failed to fetch project groups:', err)
     }
+    void get().fetchCollections()
+  },
+
+  fetchCollections: async () => {
+    try {
+      const target = getActiveRuntimeTarget(get().settings)
+      const collections = await fetchCollectionsForTarget(target)
+      set({ collections })
+    } catch (err) {
+      // Why: older paired runtimes predate collection.* methods; keep the sidebar usable.
+      console.warn('Failed to fetch collections:', err)
+    }
   },
 
   fetchProjectGroupsForAllHosts: async (options) => {
@@ -1943,6 +1978,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     } catch (err) {
       console.error('Failed to fetch local project groups for all-host load:', err)
     }
+    void get().fetchCollections()
     if (options?.remoteHosts === 'skip') {
       return
     }
@@ -2217,6 +2253,117 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     } catch (err) {
       console.error('Failed to create project group:', err)
       return null
+    }
+  },
+
+  createCollection: async (name) => {
+    try {
+      const target = getActiveRuntimeTarget(get().settings)
+      const collection =
+        target.kind === 'local'
+          ? await window.api.collections.create({ name })
+          : (
+              await callRuntimeRpc<{ collection: Collection }>(
+                target,
+                'collection.create',
+                { name },
+                { timeoutMs: 15_000 }
+              )
+            ).collection
+      if (!collection) {
+        return null
+      }
+      set((s) => ({ collections: [...s.collections, collection] }))
+      return collection
+    } catch (err) {
+      console.error('Failed to create collection:', err)
+      return null
+    }
+  },
+
+  updateCollection: async (collectionId, updates) => {
+    try {
+      const target = getActiveRuntimeTarget(get().settings)
+      const updated =
+        target.kind === 'local'
+          ? await window.api.collections.update({ collectionId, updates })
+          : (
+              await callRuntimeRpc<{ collection: Collection | null }>(
+                target,
+                'collection.update',
+                { collectionId, updates },
+                { timeoutMs: 15_000 }
+              )
+            ).collection
+      if (updated) {
+        set((s) => ({
+          collections: s.collections.map((collection) =>
+            collection.id === collectionId ? updated : collection
+          )
+        }))
+      }
+      return updated
+    } catch (err) {
+      console.error('Failed to update collection:', err)
+      return null
+    }
+  },
+
+  deleteCollection: async (collectionId) => {
+    try {
+      const target = getActiveRuntimeTarget(get().settings)
+      const deleted =
+        target.kind === 'local'
+          ? await window.api.collections.delete({ collectionId })
+          : (
+              await callRuntimeRpc<{ deleted: boolean }>(
+                target,
+                'collection.delete',
+                { collectionId },
+                { timeoutMs: 15_000 }
+              )
+            ).deleted
+      if (deleted) {
+        // Why: memberships were stripped server-side; mirror locally so rows
+        // vanish without waiting for the next worktree refresh.
+        const collectionGroupPrefix = `collection:${collectionId}`
+        let persistedCollapsedGroups: string[] | null = null
+        set((s) => ({
+          collections: s.collections.filter((collection) => collection.id !== collectionId),
+          worktreesByRepo: Object.fromEntries(
+            Object.entries(s.worktreesByRepo).map(([repoId, worktrees]) => [
+              repoId,
+              worktrees.map((worktree) =>
+                worktree.collectionIds?.includes(collectionId)
+                  ? {
+                      ...worktree,
+                      collectionIds: worktree.collectionIds.filter((id) => id !== collectionId)
+                    }
+                  : worktree
+              )
+            ])
+          ),
+          collapsedGroups: (() => {
+            const next = new Set(
+              [...s.collapsedGroups].filter(
+                (key) =>
+                  key !== collectionGroupPrefix && !key.startsWith(`${collectionGroupPrefix}:`)
+              )
+            )
+            if (next.size !== s.collapsedGroups.size) {
+              persistedCollapsedGroups = [...next]
+            }
+            return next
+          })()
+        }))
+        if (persistedCollapsedGroups) {
+          window.api.ui.set({ collapsedGroups: persistedCollapsedGroups }).catch(console.error)
+        }
+      }
+      return deleted
+    } catch (err) {
+      console.error('Failed to delete collection:', err)
+      return false
     }
   },
 
