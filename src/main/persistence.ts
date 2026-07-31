@@ -46,6 +46,7 @@ import type {
   ProjectHostSetupUpdateResult,
   RepoProjectHostSetupMethod,
   Repo,
+  Collection,
   ProjectGroup,
   FolderWorkspace,
   SparsePreset,
@@ -213,6 +214,16 @@ import {
   normalizeProjectGroupName,
   normalizeProjectGroups
 } from '../shared/project-groups'
+import {
+  createCollection,
+  getNextCollectionOrder,
+  normalizeCollectionIds,
+  normalizeCollectionName,
+  normalizeCollections,
+  pruneMissingCollectionIds,
+  removeCollectionId,
+  sortCollectionsByOrder
+} from '../shared/collections'
 import { createNestedProjectGroupResolver } from './project-groups/nested-repo-import'
 import {
   mergeLegacyCommitMessageAiIntoSourceControlAi,
@@ -3122,6 +3133,7 @@ export class Store {
           this.loadNeedsSave = true
         }
         const normalizedProjectGroups = normalizeProjectGroups(parsed.projectGroups)
+        const normalizedCollections = normalizeCollections(parsed.collections)
         const loadedCompactWorktreeCards =
           parsed.settings?.compactWorktreeCards ??
           parsed.settings?.experimentalCompactWorktreeCards ??
@@ -3142,6 +3154,7 @@ export class Store {
             parsed.featureInteractionTelemetryBuckets
           ),
           projectGroups: normalizedProjectGroups,
+          collections: normalizedCollections,
           folderWorkspaces: normalizeFolderWorkspaces(
             parsed.folderWorkspaces,
             normalizedProjectGroups
@@ -3490,6 +3503,24 @@ export class Store {
     }
 
     const repos = clearMissingProjectGroupMemberships(result.repos, result.projectGroups ?? [])
+    const collectionIdSet = new Set((result.collections ?? []).map((collection) => collection.id))
+    for (const meta of Object.values(result.worktreeMeta ?? {})) {
+      if (!meta.collectionIds) {
+        continue
+      }
+      const pruned = pruneMissingCollectionIds(
+        normalizeCollectionIds(meta.collectionIds),
+        collectionIdSet
+      )
+      if ((pruned?.length ?? 0) !== meta.collectionIds.length) {
+        this.loadNeedsSave = true
+      }
+      if (pruned) {
+        meta.collectionIds = pruned
+      } else {
+        delete meta.collectionIds
+      }
+    }
     const projectHostSetupCompatibility = mergeProjectHostSetupCompatibilityState(result, repos)
     if (!projectHostSetupCompatibilityStateEqual(result, projectHostSetupCompatibility)) {
       this.loadNeedsSave = true
@@ -4082,6 +4113,81 @@ export class Store {
     this.pruneMobileClientTabSelections((worktreeId) => removedFolderWorkspaceKeys.has(worktreeId))
     this.scheduleSave()
     return true
+  }
+
+  // ── Collections (cross-repo worktree sections) ─────────────────────
+
+  getCollections(): Collection[] {
+    return sortCollectionsByOrder(this.state.collections ?? [])
+  }
+
+  createCollection(input: { name: string; color?: string | null }): Collection {
+    const collection = createCollection({
+      name: input.name,
+      color: input.color ?? null,
+      order: getNextCollectionOrder(this.state.collections ?? [])
+    })
+    this.state.collections = [...(this.state.collections ?? []), collection]
+    this.scheduleSave()
+    return collection
+  }
+
+  updateCollection(
+    collectionId: string,
+    updates: Partial<Pick<Collection, 'name' | 'isCollapsed' | 'order' | 'color'>>
+  ): Collection | null {
+    const collection = (this.state.collections ?? []).find((entry) => entry.id === collectionId)
+    if (!collection) {
+      return null
+    }
+    if (updates.name !== undefined) {
+      collection.name = normalizeCollectionName(updates.name, collection.name)
+    }
+    if (updates.isCollapsed !== undefined) {
+      collection.isCollapsed = updates.isCollapsed
+    }
+    if (updates.order !== undefined && Number.isFinite(updates.order)) {
+      collection.order = updates.order
+    }
+    if (updates.color !== undefined) {
+      collection.color = typeof updates.color === 'string' ? updates.color : null
+    }
+    collection.updatedAt = Date.now()
+    this.scheduleSave()
+    return collection
+  }
+
+  deleteCollection(collectionId: string): boolean {
+    const before = this.state.collections?.length ?? 0
+    this.state.collections = (this.state.collections ?? []).filter(
+      (entry) => entry.id !== collectionId
+    )
+    if ((this.state.collections?.length ?? 0) === before) {
+      return false
+    }
+    // Why: purely-visual grouping — deleting a collection strips memberships, never worktrees.
+    for (const meta of Object.values(this.state.worktreeMeta)) {
+      if (!meta.collectionIds?.includes(collectionId)) {
+        continue
+      }
+      const next = removeCollectionId(meta.collectionIds, collectionId)
+      if (next) {
+        meta.collectionIds = next
+      } else {
+        delete meta.collectionIds
+      }
+    }
+    this.scheduleSave()
+    return true
+  }
+
+  setWorktreeCollectionIds(
+    worktreeId: string,
+    collectionIds: readonly string[] | undefined
+  ): WorktreeMeta {
+    // Why: route through setWorktreeMeta so every membership writer shares its
+    // normalize-and-prune chokepoint; [] collapses to "no memberships".
+    return this.setWorktreeMeta(worktreeId, { collectionIds: [...(collectionIds ?? [])] })
   }
 
   getFolderWorkspaces(): FolderWorkspace[] {
@@ -5091,6 +5197,20 @@ export class Store {
     )
       ? linkedTaskSourceContext
       : null
+    // Why: single chokepoint for every membership writer (IPC updateMeta,
+    // worktree.set RPC, setWorktreeCollectionIds) — dedupe, drop dangling
+    // collection ids, and collapse empty to "key absent".
+    if ('collectionIds' in updated) {
+      const normalizedCollectionIds = pruneMissingCollectionIds(
+        normalizeCollectionIds(updated.collectionIds),
+        new Set((this.state.collections ?? []).map((entry) => entry.id))
+      )
+      if (normalizedCollectionIds) {
+        updated.collectionIds = normalizedCollectionIds
+      } else {
+        delete updated.collectionIds
+      }
+    }
     if (!updated.instanceId) {
       updated.instanceId = randomUUID()
     }
