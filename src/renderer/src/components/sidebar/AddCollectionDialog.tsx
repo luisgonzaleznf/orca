@@ -173,9 +173,18 @@ export function AddCollectionDialog({
           await fileMembership(collection.id, collection.name)
         } else {
           const created = await createCollection(trimmedName)
-          if (created) {
-            await fileMembership(created.id, created.name)
+          if (!created) {
+            // Why: the store returns null on transport failure; closing here
+            // would swallow the error with no collection and no feedback.
+            toast.error(
+              translate(
+                'auto.components.sidebar.AddCollectionDialog.createFailed',
+                'Could not create the collection'
+              )
+            )
+            return
           }
+          await fileMembership(created.id, created.name)
         }
         if (mountedRef.current) {
           onOpenChange(false)

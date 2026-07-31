@@ -5125,6 +5125,7 @@
           "creating": "Creating worktrees…",
           "createWorktreeFailed": "Could not create a worktree in {{value0}}",
           "addWorktreeFailed": "Could not add {{value0}} to the collection",
+          "createFailed": "Could not create the collection",
           "nameLabel": "Name",
           "projectsLabel": "Projects"
         }
