@@ -20,6 +20,7 @@ import type {
   ComputerUsePermissionStatusResult
 } from '../../../shared/computer-use-permissions-types'
 import type {
+  Collection,
   DetectedWorktreeListResult,
   DirEntry,
   ForceDeleteWorktreeBranchResult,
@@ -785,6 +786,7 @@ function createWebPreloadApi(): Partial<PreloadApi> {
     nativeChat: createNativeChatApi(),
     runtimeEnvironments: createRuntimeEnvironmentsApi(),
     repos: createReposApi(),
+    collections: createCollectionsApi(),
     worktrees: createWorktreesApi(),
     fs: createFileApi(),
     git: createGitApi(),
@@ -1670,6 +1672,33 @@ function createReposApi(): NonNullable<Partial<PreloadApi>['repos']> {
       return result.refDetails ?? result.refs.map(legacyBaseRefSearchResult)
     },
     onChanged: () => noopUnsubscribe
+  }
+}
+
+function createCollectionsApi(): NonNullable<Partial<PreloadApi>['collections']> {
+  return {
+    list: async () =>
+      (await callRuntimeResult<{ collections: Collection[] }>('collection.list')).collections,
+    create: async ({ name, color }) =>
+      (
+        await callRuntimeResult<{ collection: Collection }>('collection.create', {
+          name,
+          color
+        })
+      ).collection,
+    update: async ({ collectionId, updates }) =>
+      (
+        await callRuntimeResult<{ collection: Collection | null }>('collection.update', {
+          collectionId,
+          updates
+        })
+      ).collection,
+    delete: async ({ collectionId }) =>
+      (
+        await callRuntimeResult<{ deleted: boolean }>('collection.delete', {
+          collectionId
+        })
+      ).deleted
   }
 }
 

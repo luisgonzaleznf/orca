@@ -16,6 +16,7 @@ import {
   releasePendingTccPromptNotice
 } from '../macos-tcc-prompt-notice'
 import { registerRepoHandlers } from '../ipc/repos'
+import { registerCollectionHandlers } from '../ipc/collections'
 import { registerWorktreeHandlers } from '../ipc/worktrees'
 import { registerWorkspaceCleanupHandlers } from '../ipc/workspace-cleanup'
 import {
@@ -99,6 +100,7 @@ export function attachMainWindowServices(
 ): void {
   registerAppReloadHandler(mainWindow, options?.onBeforeRendererReload)
   registerRepoHandlers(mainWindow, store)
+  registerCollectionHandlers(mainWindow, store)
   registerWorktreeHandlers(mainWindow, store, runtime, {
     onWorktreeLifecycle: options?.onWorktreeLifecycle
   })

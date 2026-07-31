@@ -234,6 +234,7 @@ import type {
   ProjectUpdateArgs,
   Repo,
   ProjectGroup,
+  Collection,
   ProjectHostSetup,
   ProjectHostSetupCreateArgs,
   ProjectHostSetupCreateResult,
@@ -1314,6 +1315,15 @@ export type PreloadApi = {
       scanId?: string
       mode: ProjectGroupImportMode
     }) => Promise<ProjectGroupImportResult>
+  }
+  collections: {
+    list: () => Promise<Collection[]>
+    create: (args: { name: string; color?: string | null }) => Promise<Collection>
+    update: (args: {
+      collectionId: string
+      updates: Partial<Pick<Collection, 'name' | 'isCollapsed' | 'order' | 'color'>>
+    }) => Promise<Collection | null>
+    delete: (args: { collectionId: string }) => Promise<boolean>
   }
   folderWorkspaces: {
     list: () => Promise<FolderWorkspace[]>

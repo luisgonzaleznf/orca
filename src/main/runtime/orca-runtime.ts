@@ -10,6 +10,7 @@ import {
   normalizeTerminalTitle
 } from '../../shared/agent-detection'
 import { extractOscTitleScanTail } from '../../shared/osc-title-scan-tail'
+import { clampExclusiveCollectionMembership } from '../../shared/collections'
 import { isServerDriveListRequest, listWindowsDrives } from './windows-drive-listing'
 import { extractLastOsc7Uri, extractOscScanTail } from '../daemon/osc7-uri-extraction'
 import { parseFileUriPathParts } from '../daemon/osc7-file-uri'
@@ -189,6 +190,7 @@ import type {
   LinearProjectSummary,
   LinearWorkspaceSelection,
   NestedRepoScanResult,
+  Collection,
   ProjectGroup,
   FolderWorkspace,
   ProjectGroupImportMode,
@@ -1033,6 +1035,10 @@ type RuntimeStore = {
   updateProjectGroup?: Store['updateProjectGroup']
   deleteProjectGroup?: Store['deleteProjectGroup']
   moveProjectToGroup?: Store['moveProjectToGroup']
+  getCollections?: Store['getCollections']
+  createCollection?: Store['createCollection']
+  updateCollection?: Store['updateCollection']
+  deleteCollection?: Store['deleteCollection']
   getFolderWorkspaces?: Store['getFolderWorkspaces']
   createFolderWorkspace?: Store['createFolderWorkspace']
   updateFolderWorkspace?: Store['updateFolderWorkspace']
@@ -16927,6 +16933,44 @@ export class OrcaRuntimeService {
     return this.store?.getFolderWorkspaces?.() ?? []
   }
 
+  listCollections(): Collection[] {
+    return this.store?.getCollections?.() ?? []
+  }
+
+  async createCollection(input: { name: string; color?: string | null }): Promise<Collection> {
+    if (!this.store?.createCollection) {
+      throw new Error('runtime_unavailable')
+    }
+    const collection = this.store.createCollection(input)
+    this.notifyReposChanged()
+    return collection
+  }
+
+  async updateCollection(
+    collectionId: string,
+    updates: Partial<Pick<Collection, 'name' | 'isCollapsed' | 'order' | 'color'>>
+  ): Promise<Collection | null> {
+    if (!this.store?.updateCollection) {
+      throw new Error('runtime_unavailable')
+    }
+    const updated = this.store.updateCollection(collectionId, updates)
+    if (updated) {
+      this.notifyReposChanged()
+    }
+    return updated
+  }
+
+  async deleteCollection(collectionId: string): Promise<{ deleted: boolean }> {
+    if (!this.store?.deleteCollection) {
+      throw new Error('runtime_unavailable')
+    }
+    const deleted = this.store.deleteCollection(collectionId)
+    if (deleted) {
+      this.notifyReposChanged()
+    }
+    return { deleted }
+  }
+
   async createProjectGroup(input: {
     name: string
     parentPath?: string | null
@@ -22184,6 +22228,14 @@ export class OrcaRuntimeService {
       // Why: omitUndefinedProperties protects ordinary optional RPC fields, but
       // pushTarget:null is an explicit request to remove persisted target metadata.
       persistedMetaUpdates.pushTarget = undefined
+    }
+    if (persistedMetaUpdates.collectionIds !== undefined) {
+      // Why: amended D1 is a data invariant at this boundary — no RPC/CLI/web
+      // caller can file a feature worktree into several collections.
+      persistedMetaUpdates.collectionIds = clampExclusiveCollectionMembership(
+        persistedMetaUpdates.collectionIds,
+        worktree.isMainWorktree
+      )
     }
     if (lineage?.noParent === true) {
       this.store.removeWorktreeLineage?.(worktree.id)

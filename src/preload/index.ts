@@ -698,6 +698,12 @@ const api = {
     deleteHostSetup: (args) => ipcRenderer.invoke('projectHostSetups:delete', args)
   } satisfies PreloadApi['projects'],
 
+  collections: {
+    list: () => ipcRenderer.invoke('collections:list'),
+    create: (args) => ipcRenderer.invoke('collections:create', args),
+    update: (args) => ipcRenderer.invoke('collections:update', args),
+    delete: (args) => ipcRenderer.invoke('collections:delete', args)
+  },
   projectGroups: {
     list: () => ipcRenderer.invoke('projectGroups:list'),
     create: (args) => ipcRenderer.invoke('projectGroups:create', args),
