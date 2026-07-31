@@ -569,6 +569,10 @@ export type TerminalSlice = {
   nativeChatLaunchDraftByTabId: Record<string, NativeChatLaunchDraft>
   seedNativeChatLaunchDraft: (draft: NativeChatLaunchDraft) => void
   markNativeChatLaunchDraftAdopted: (tabId: string) => void
+  resolveNativeChatLaunchDraft: (
+    tabId: string,
+    resolution: Pick<NativeChatLaunchDraft, 'createdAt' | 'text'>
+  ) => void
   clearNativeChatLaunchDraft: (tabId: string) => void
   pendingStartupByTabId: Record<
     string,
@@ -833,6 +837,7 @@ type WorkspaceHydrationPatch = Pick<
   | 'activeRepoId'
   | 'activeWorktreeId'
   | 'activeWorkspaceKey'
+  | 'activeWorkspaceExecutionHostId'
   | 'activeTabId'
   | 'activeTabIdByWorktree'
   | 'restoredRuntimeHostIdByWorkspaceSessionKey'
@@ -926,6 +931,9 @@ function targetScopedWorkspaceHydrationPatch(
     activeRepoId: activeOutsideScope ? state.activeRepoId : hydrated.activeRepoId,
     activeWorktreeId: activeOutsideScope ? state.activeWorktreeId : hydrated.activeWorktreeId,
     activeWorkspaceKey: activeOutsideScope ? state.activeWorkspaceKey : hydrated.activeWorkspaceKey,
+    activeWorkspaceExecutionHostId: activeOutsideScope
+      ? state.activeWorkspaceExecutionHostId
+      : hydrated.activeWorkspaceExecutionHostId,
     activeTabId: activeOutsideScope ? state.activeTabId : hydrated.activeTabId,
     activeTabIdByWorktree: replaceHydratedRecordKeys(
       state.activeTabIdByWorktree,
@@ -1122,6 +1130,26 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         nativeChatLaunchDraftByTabId: {
           ...s.nativeChatLaunchDraftByTabId,
           [tabId]: { ...current, adopted: true }
+        }
+      }
+    })
+  },
+
+  resolveNativeChatLaunchDraft: (tabId, resolution) => {
+    set((s) => {
+      const current = s.nativeChatLaunchDraftByTabId[tabId]
+      if (
+        !current ||
+        current.resolved ||
+        current.createdAt !== resolution.createdAt ||
+        current.text !== resolution.text
+      ) {
+        return {}
+      }
+      return {
+        nativeChatLaunchDraftByTabId: {
+          ...s.nativeChatLaunchDraftByTabId,
+          [tabId]: { ...current, resolved: true }
         }
       }
     })
@@ -3781,6 +3809,10 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
               ? (activeWorktreeId as WorkspaceKey)
               : worktreeWorkspaceKey(activeWorktreeId)
             : null
+      const activeWorkspaceExecutionHostId =
+        activeWorkspaceKey && session.activeWorkspaceExecutionHostId
+          ? session.activeWorkspaceExecutionHostId
+          : null
       const activeTabId =
         session.activeTabId && validTabIds.has(session.activeTabId) ? session.activeTabId : null
       const activeRepoId =
@@ -3917,6 +3949,7 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
         activeRepoId,
         activeWorktreeId,
         activeWorkspaceKey,
+        activeWorkspaceExecutionHostId,
         activeTabId,
         activeTabIdByWorktree,
         restoredRuntimeHostIdByWorkspaceSessionKey:

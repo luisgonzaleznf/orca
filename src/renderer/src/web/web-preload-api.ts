@@ -1345,6 +1345,7 @@ function createRuntimeApi(): NonNullable<Partial<PreloadApi>['runtime']> {
     reclaimBrowserForDesktop: () => Promise.resolve({ reclaimed: false }),
     onTerminalFitOverrideChanged: () => noopUnsubscribe,
     onTerminalDriverChanged: () => noopUnsubscribe,
+    onNativeChatLaunchDraftResolved: () => noopUnsubscribe,
     onBrowserDriverChanged: () => noopUnsubscribe
   }
 }
@@ -3098,6 +3099,17 @@ function createUpdaterApi(): NonNullable<Partial<PreloadApi>['updater']> {
     quitAndInstall: () => Promise.resolve(),
     dismissNudge: () => Promise.resolve(),
     dismissAvailableUpdate: () => Promise.resolve(),
+    // Why: the web client cannot install a desktop build, so channel switching
+    // reports unavailable rather than an empty list that looks like a fetch miss.
+    listBuilds: (channel) =>
+      Promise.resolve({
+        ok: false,
+        channel,
+        message: translate(
+          'auto.components.settings.ReleaseChannelSection.webUnavailable',
+          'Switching builds is only available in the desktop app.'
+        )
+      }),
     onStatus: () => noopUnsubscribe,
     onClearDismissal: () => noopUnsubscribe
   }
