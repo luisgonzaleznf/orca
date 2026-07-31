@@ -314,6 +314,20 @@ export type ProjectGroup = {
   updatedAt: number
 }
 
+/** A named, purely-visual sidebar section grouping worktrees across repos.
+ *  Many-to-many with worktrees via WorktreeMeta.collectionIds; references
+ *  existing checkouts only — never creates folders on disk. */
+export type Collection = {
+  id: string
+  name: string
+  color: string | null
+  isCollapsed: boolean
+  /** Manual ordering among collection sections; lower renders first. */
+  order: number
+  createdAt: number
+  updatedAt: number
+}
+
 export type WorkspaceScope =
   | { type: 'worktree'; worktreeId: string }
   | { type: 'folder'; folderWorkspaceId: string }
@@ -540,6 +554,8 @@ export type Worktree = {
   /** Path-derived worktree ids this worktree had before folder renames. */
   priorWorktreeIds?: string[]
   workspaceStatus?: WorkspaceStatus
+  /** Collections this worktree belongs to. Mirrors WorktreeMeta.collectionIds; absent = none. */
+  collectionIds?: string[]
   diffComments?: DiffComment[]
   mobileDiffReview?: MobileDiffReviewState
   automationProvenance?: AutomationWorkspaceProvenance
@@ -661,6 +677,8 @@ export type WorktreeMeta = {
   orcaCreationWorkspaceLayout?: OrcaWorkspaceLayout
   /** User-assigned workspace board status for manual sidebar organization. */
   workspaceStatus?: WorkspaceStatus
+  /** Collections this worktree belongs to (many-to-many). Absent = none; never persisted as []. */
+  collectionIds?: string[]
   diffComments?: DiffComment[]
   /** Path-derived worktree ids this worktree had before its folder was renamed
    *  on disk (the id embeds the path). Lets the daemon's session GC and registry
@@ -3545,6 +3563,8 @@ export type PersistedState = {
   projects: Project[]
   projectHostSetups: ProjectHostSetup[]
   projectGroups: ProjectGroup[]
+  /** Worktree collections (cross-repo workstream sections). Absent on pre-collection files. */
+  collections?: Collection[]
   folderWorkspaces: FolderWorkspace[]
   /** Sparse-checkout presets keyed by repoId. */
   sparsePresetsByRepo: Record<string, SparsePreset[]>
