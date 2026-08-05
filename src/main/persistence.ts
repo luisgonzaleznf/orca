@@ -3707,6 +3707,10 @@ export class Store {
     const repos = clearMissingProjectGroupMemberships(result.repos, result.projectGroups ?? [])
     const collectionIdSet = new Set((result.collections ?? []).map((collection) => collection.id))
     for (const meta of Object.values(result.worktreeMeta ?? {})) {
+      // Why: corrupt non-object entries are dropped later by the worktreeMeta normalizer.
+      if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
+        continue
+      }
       if (!('collectionIds' in meta)) {
         continue
       }
