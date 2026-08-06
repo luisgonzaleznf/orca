@@ -28,12 +28,15 @@ type RepoGroup = { repo: Repo; worktrees: Worktree[] }
 
 /** Branch/folder seed for worktrees started from the collection dialog. */
 function collectionWorktreeName(collectionName: string): string {
+  // Why: git refs reject '..', '.lock' endings, and leading/trailing dots.
   const slug = collectionName
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/\.{2,}/g, '.')
     .slice(0, 40)
+    .replace(/(\.lock)+$/, '')
+    .replace(/^[.-]+|[.-]+$/g, '')
   return slug || 'workstream'
 }
 
@@ -68,6 +71,17 @@ export function AddCollectionDialog({
   const handleDialogContentRef = useCallback((node: HTMLDivElement | null): void => {
     mountedRef.current = node !== null
   }, [])
+
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      // Why: closing mid-submit re-arms the form while the first batch is still filing.
+      if (!next && submitting) {
+        return
+      }
+      onOpenChange(next)
+    },
+    [submitting, onOpenChange]
+  )
 
   // Why: every repo lists — empty and master-only repos are exactly the ones
   // you start a fresh worktree in.
@@ -199,7 +213,7 @@ export function AddCollectionDialog({
   )
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         ref={handleDialogContentRef}
         // Why: the grid's min-content tracks otherwise blow out past max-width on
@@ -315,7 +329,7 @@ export function AddCollectionDialog({
               type="button"
               variant="outline"
               disabled={submitting}
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
             >
               {translate('auto.components.sidebar.AddCollectionDialog.cancel', 'Cancel')}
             </Button>

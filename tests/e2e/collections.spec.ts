@@ -95,6 +95,8 @@ test('collection lifecycle preserves worktrees and membership rules', async ({
   await expect(approveHeader).toBeVisible()
   const approveId = await approveHeader.getAttribute('data-collection-header-id')
   expect(approveId).toBeTruthy()
+  // Why: create checked both "New worktree" rows, so the git list legitimately
+  // grows here; every later collection operation must leave it untouched.
   await expect
     .poll(
       () =>

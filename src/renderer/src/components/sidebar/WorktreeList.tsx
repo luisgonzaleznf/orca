@@ -6475,9 +6475,9 @@ const WorktreeList = React.memo(function WorktreeList({
     [worktreeMap, updateWorktreesMeta]
   )
 
-  const handleConfirmDeleteCollection = useCallback(async () => {
+  const handleConfirmDeleteCollection = useCallback(async (): Promise<boolean> => {
     if (!collectionDeleteDialog) {
-      return
+      return false
     }
     const deleted = await deleteCollection(collectionDeleteDialog.collectionId)
     if (!deleted) {
@@ -6487,9 +6487,10 @@ const WorktreeList = React.memo(function WorktreeList({
           'Failed to delete collection'
         )
       )
-      return
+      return false
     }
-    setCollectionDeleteDialog(null)
+    // Why: the dialog owns the close — clearing state here races its finally block.
+    return true
   }, [collectionDeleteDialog, deleteCollection])
 
   const handleSubmitProjectGroupName = useCallback(

@@ -14,7 +14,8 @@ type CollectionDeleteDialogProps = {
   open: boolean
   collectionName: string
   onOpenChange: (open: boolean) => void
-  onConfirm: () => Promise<void> | void
+  /** Returns whether the delete succeeded; the dialog stays open on failure. */
+  onConfirm: () => Promise<boolean> | boolean
 }
 
 export function CollectionDeleteDialog({
@@ -24,7 +25,17 @@ export function CollectionDeleteDialog({
   onConfirm
 }: CollectionDeleteDialogProps): React.JSX.Element {
   const [deleting, setDeleting] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
   const mountedRef = useRef(true)
+
+  // Why: the parent keeps this mounted; if a close races the confirm's finally,
+  // a stale `deleting` would dead-lock the buttons on the next open.
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setDeleting(false)
+    }
+  }
 
   const handleDialogContentRef = useCallback((node: HTMLDivElement | null): void => {
     mountedRef.current = node !== null
@@ -36,8 +47,8 @@ export function CollectionDeleteDialog({
     }
     setDeleting(true)
     try {
-      await onConfirm()
-      if (mountedRef.current) {
+      const deleted = await onConfirm()
+      if (deleted && mountedRef.current) {
         onOpenChange(false)
       }
     } finally {
