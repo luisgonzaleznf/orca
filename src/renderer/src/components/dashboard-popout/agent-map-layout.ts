@@ -13,6 +13,7 @@ import {
   agentMapWorktreeIdentityFromParts
 } from './agent-map-workspace-identity'
 import { layoutAgentMapWorktreeLineage } from './agent-map-worktree-lineage-layout'
+import { agentMapWorktreeHost } from './agent-map-worktree-host'
 
 type DashboardCard = DashboardSnapshotTypes.DashboardCard
 type DashboardCardDotState = DashboardSnapshotTypes.DashboardCardDotState
@@ -24,6 +25,16 @@ export { agentMapDurationMinutes, agentMapNodeStatus } from './agent-map-node-me
 export const AGENT_MAP_AGENT_RADIUS = 20
 export const AGENT_MAP_AGGREGATE_ZOOM = 1.15
 export const AGENT_MAP_RING_HEADER_HEIGHT = 40
+
+/**
+ * Every map node is a top-level pane agent — in-process subagent rows are folded
+ * into their parent card's `subagents` roster and never become cards themselves
+ * (`build-dashboard-snapshot.ts`). So an edge between two nodes is always an
+ * orchestration dispatch, and there is no second relation to distinguish.
+ */
+export const AGENT_MAP_LINEAGE_RELATION = 'orchestration'
+
+export type AgentMapMotionState = 'entering' | 'exiting'
 
 const PROJECT_PADDING = 12
 const WORLD_MARGIN = 32
@@ -38,6 +49,7 @@ export type AgentMapAgentNode = {
   radius: number
   durationMinutes: number
   status: DashboardCardDotState
+  motionState?: AgentMapMotionState
 }
 
 export type AgentMapWorktreeRing = {
@@ -47,6 +59,8 @@ export type AgentMapWorktreeRing = {
   clusterParentId?: string
   worktreeId: string
   executionHostId: DashboardCard['executionHostId']
+  hostKind?: DashboardCard['hostKind']
+  hostLabel?: string
   name: string
   workspaceKind: NonNullable<DashboardCard['workspaceKind']>
   x: number
@@ -55,6 +69,7 @@ export type AgentMapWorktreeRing = {
   agents: AgentMapAgentNode[]
   statusCounts: AgentMapStatusCounts
   quiet: boolean
+  motionState?: AgentMapMotionState
 }
 
 export type AgentMapProjectRing = {
@@ -65,6 +80,7 @@ export type AgentMapProjectRing = {
   radius: number
   worktrees: AgentMapWorktreeRing[]
   agentCount: number
+  motionState?: AgentMapMotionState
 }
 
 export type AgentMapLayout = {
@@ -141,7 +157,8 @@ function buildLocalWorktree(
   for (const card of cards) {
     statusCounts[agentMapNodeStatus(card)] += 1
   }
-  const executionHostId = workspace?.executionHostId ?? cards[0]?.executionHostId
+  const host = agentMapWorktreeHost(cards, workspace)
+  const executionHostId = host.executionHostId
   const parentWorktreeId = workspace?.parentWorktreeId ?? cards[0]?.parentWorktreeId
   return {
     id,
@@ -149,7 +166,7 @@ function buildLocalWorktree(
       ? agentMapWorktreeIdentityFromParts(parentWorktreeId, executionHostId)
       : undefined,
     worktreeId: workspace?.worktreeId ?? cards[0]?.worktreeId ?? id,
-    executionHostId,
+    ...host,
     name: workspace?.worktreeName ?? cards[0]?.worktreeName ?? id,
     workspaceKind: workspace?.workspaceKind ?? cards[0]?.workspaceKind ?? 'worktree',
     x: 0,
@@ -303,6 +320,6 @@ export function updateAgentMapLayout(
       layout: geometry
     }
   }
-  const layout = refreshAgentMapMetadata(cache.geometry, cards, now)
+  const layout = refreshAgentMapMetadata(cache.geometry, cards, workspaces, now)
   return { cache, layout }
 }
