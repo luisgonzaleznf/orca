@@ -18750,8 +18750,6 @@ export class OrcaRuntimeService {
         async () => {
           this.assertLiveTerminalHandleTargetsPty(handle, pty.pty.ptyId)
           this.assertAgentPromptGeneration(pty.pty.ptyId, generation)
-          await this.assertNoPendingComposerInput(pty.pty.ptyId, options)
-          this.assertAgentPromptGeneration(pty.pty.ptyId, generation)
           return await this.writeTerminalAgentPrompt(
             handle,
             pty.pty.ptyId,
@@ -18779,8 +18777,6 @@ export class OrcaRuntimeService {
     const submits = await this.serializeAgentPromptSubmission(leaf.ptyId, generation, async () => {
       this.assertLiveTerminalHandleTargetsPty(handle, leaf.ptyId!)
       this.assertAgentPromptGeneration(leaf.ptyId!, generation)
-      await this.assertNoPendingComposerInput(leaf.ptyId!, options)
-      this.assertAgentPromptGeneration(leaf.ptyId!, generation)
       return await this.writeTerminalAgentPrompt(handle, leaf.ptyId!, generation, payload, options)
     })
     const bytesWritten = Buffer.byteLength(payload, 'utf8') + submits
@@ -18792,22 +18788,45 @@ export class OrcaRuntimeService {
   // rendered draft refuses; an unreadable screen is unknown and never blocks a send.
   private async assertNoPendingComposerInput(
     ptyId: string,
-    options: { allowPendingInput?: boolean }
+    options: { allowPendingInput?: boolean; signal?: AbortSignal }
   ): Promise<void> {
     if (options.allowPendingInput === true) {
       return
     }
     const pty = this.ptysById.get(ptyId)
-    const agent = pty?.launchAgent ?? pty?.foregroundAgent
+    // Why: the launch agent is stale once the user swaps agents in the pane.
+    const agent = pty?.foregroundAgent ?? pty?.launchAgent
     if (!isTerminalSendSettlementAgent(agent)) {
       return
     }
-    const visibleState = await this.readVisibleTerminalState(ptyId)
-    const pendingInput = detectPendingComposerInput(agent, visibleState?.cursorContext, {
+    const cursorContext = await this.readComposerCursorContext(ptyId, options.signal)
+    const pendingInput = detectPendingComposerInput(agent, cursorContext, {
       trustStyle: !isNativeWindowsConptyPty(ptyId)
     })
     if (pendingInput !== null) {
       throw new AgentPromptPendingInputError(pendingInput)
+    }
+  }
+
+  // Why: a provider frame is discarded when output advanced past it — which is exactly
+  // what a user's keystroke echo does — so retry briefly before giving up on evidence.
+  private async readComposerCursorContext(
+    ptyId: string,
+    signal?: AbortSignal
+  ): Promise<TerminalCursorContext | null> {
+    const attempts = this.providerSnapshotPreferredPtys.has(ptyId)
+      ? COMPOSER_CURSOR_CONTEXT_READ_ATTEMPTS
+      : 1
+    for (let attempt = 0; ; attempt += 1) {
+      assertAgentPromptRequestActive(signal)
+      const visibleState = await this.readVisibleTerminalState(ptyId)
+      if (visibleState) {
+        return visibleState.cursorContext ?? null
+      }
+      if (attempt >= attempts - 1) {
+        return null
+      }
+      await waitForAgentPromptDelay(COMPOSER_CURSOR_CONTEXT_RETRY_MS, signal)
     }
   }
 
@@ -19483,12 +19502,21 @@ export class OrcaRuntimeService {
       beforeWrite?: (ptyId: string) => void | Promise<void>
       suffixFailureError?: string
       signal?: AbortSignal
+      allowPendingInput?: boolean
     } = {}
   ): Promise<number> {
     assertAgentPromptRequestActive(options.signal)
     this.assertAgentPromptGeneration(ptyId, generation)
     const permissionBaseline = this.getAgentPromptActivity(handle, ptyId)
     this.assertAgentPromptPermissionSafe(permissionBaseline, permissionBaseline)
+    // Why: after the permission check — a dialog's selected option row also starts with `❯`.
+    await this.assertNoPendingComposerInput(ptyId, options)
+    assertAgentPromptRequestActive(options.signal)
+    this.assertAgentPromptGeneration(ptyId, generation)
+    this.assertAgentPromptPermissionSafe(
+      permissionBaseline,
+      this.getAgentPromptActivity(handle, ptyId)
+    )
     const renderGate = this.createAgentPromptRenderGate(ptyId)
     let wrotePasteBytes = false
     let completedPaste = false
@@ -38738,6 +38766,8 @@ const MAX_TERMINAL_PREVIEW_CHARS = 32 * 1024
 export const AUTHORITATIVE_TERMINAL_SNAPSHOT_TIMEOUT_MS = 8_000
 const VISIBLE_TERMINAL_SNAPSHOT_TIMEOUT_MS = 750
 const VISIBLE_TERMINAL_SNAPSHOT_RETRY_MS = 1_000
+const COMPOSER_CURSOR_CONTEXT_READ_ATTEMPTS = 3
+const COMPOSER_CURSOR_CONTEXT_RETRY_MS = 50
 const TUI_IDLE_VISIBLE_PROBE_SETTLE_MARGIN_MS = 10
 const MAX_PREVIEW_LINES = 6
 const MAX_PREVIEW_CHARS = 300

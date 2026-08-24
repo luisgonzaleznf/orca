@@ -140,6 +140,30 @@ describe('terminal.send into a composer with unsent input', () => {
     await send.catch(() => undefined)
   })
 
+  it('does not read a permission dialog option row as a draft', async () => {
+    vi.useFakeTimers()
+    const { runtime, write, handle } = await makeClaudeRuntime(
+      'Do you trust the files in this folder?\r\n❯ 1. Yes, I trust this folder\r\n  2. No, exit\x1b[A\x1b[3G'
+    )
+    const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
+
+    const send = dispatcher.dispatch(
+      request({
+        terminal: handle,
+        text: 'review this change',
+        enter: true,
+        agentPrompt: true,
+        client: { id: 'orca-cli', type: 'desktop' }
+      })
+    )
+    await vi.waitFor(() => expect(write).toHaveBeenCalled())
+    await vi.runAllTimersAsync()
+    const response = await send
+    expect(response).not.toMatchObject({
+      result: { send: { refusedReason: 'pending-input' } }
+    })
+  })
+
   it('pastes into an empty composer', async () => {
     vi.useFakeTimers()
     const { runtime, write, handle } = await makeClaudeRuntime('❯ ')

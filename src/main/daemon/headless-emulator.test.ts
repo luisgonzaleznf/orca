@@ -739,6 +739,7 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
 
     expect(emulator.getCursorLineContext(8)).toEqual({
       rows: ['history', '────────', '❯ draft text'],
+      typedRows: ['history', '────────', '❯ draft text'],
       beforeCursor: '❯ draft text',
       afterCursor: ''
     })
@@ -750,6 +751,7 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
 
     expect(emulator.getCursorLineContext(2)).toEqual({
       rows: ['› Ask Codex to do anything'],
+      typedRows: ['›'],
       beforeCursor: '› ',
       afterCursor: ''
     })
@@ -757,6 +759,7 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
     await emulator.write('\x1b[2K\x1b[1;1H❯ Refactor the login page\x1b[1;3H')
     expect(emulator.getCursorLineContext(2)).toEqual({
       rows: ['❯ Refactor the login page'],
+      typedRows: ['❯ Refactor the login page'],
       beforeCursor: '❯ ',
       afterCursor: 'Refactor the login page'
     })
@@ -768,6 +771,7 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
 
     expect(emulator.getCursorLineContext(1)).toEqual({
       rows: ['three', '❯ '],
+      typedRows: ['three', '❯'],
       beforeCursor: '❯ ',
       afterCursor: ''
     })
