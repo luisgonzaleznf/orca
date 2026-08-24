@@ -229,6 +229,12 @@ import {
 } from '../skills/skill-ssh-relay-service'
 import { ORCHESTRATION_MESSAGE_WAIT_DEFAULT_TIMEOUT_MS } from '../../shared/orchestration-message-wait-timeout'
 import { shouldForwardHeadlessTerminalQueryReply } from './headless-terminal-query-reply-policy'
+import {
+  AgentPromptPendingInputError,
+  COMPOSER_CURSOR_CONTEXT_ROWS,
+  detectPendingComposerInput,
+  type TerminalCursorContext
+} from '../../shared/agent-composer-pending-input'
 import type { TerminalRevealIdentity } from '../../shared/terminal-reveal-identity'
 import type {
   OrchestrationCompatibilityEvidence,
@@ -1792,6 +1798,7 @@ type RuntimeVisibleTerminalState = {
   isAlternateScreen: boolean
   sequence: number
   generation: number
+  cursorContext?: TerminalCursorContext | null
 }
 
 type ProviderBufferAcquisition = {
@@ -13534,7 +13541,7 @@ export class OrcaRuntimeService {
         return liveState
       }
     }
-    const lines = await this.parseVisibleSnapshotLines(snapshot)
+    const { lines, cursorContext } = await this.parseVisibleSnapshot(snapshot)
     if (
       this.getPtyLifecycleGeneration(ptyId) !== generation ||
       this.getPtyOutputSequence(ptyId) > snapshot.seq
@@ -13545,7 +13552,8 @@ export class OrcaRuntimeService {
       lines,
       isAlternateScreen: snapshot.alternateScreen ?? false,
       sequence: snapshot.seq,
-      generation
+      generation,
+      cursorContext
     }
     this.providerVisibleStateByPtyId.set(ptyId, visibleState)
     return visibleState
@@ -13570,7 +13578,8 @@ export class OrcaRuntimeService {
       lines: visibleNonBlankTerminalLines(state.emulator.getVisibleLines()),
       isAlternateScreen: state.emulator.isAlternateScreen,
       sequence: state.outputSequence,
-      generation
+      generation,
+      cursorContext: state.emulator.getCursorLineContext(COMPOSER_CURSOR_CONTEXT_ROWS)
     }
   }
 
@@ -13579,8 +13588,16 @@ export class OrcaRuntimeService {
     cols: number
     rows: number
   }): Promise<string[]> {
+    return (await this.parseVisibleSnapshot(snapshot)).lines
+  }
+
+  private async parseVisibleSnapshot(snapshot: {
+    data: string
+    cols: number
+    rows: number
+  }): Promise<{ lines: string[]; cursorContext: TerminalCursorContext | null }> {
     if (snapshot.data.length === 0) {
-      return []
+      return { lines: [], cursorContext: null }
     }
     const emulator = new HeadlessEmulator({
       cols: snapshot.cols,
@@ -13589,7 +13606,10 @@ export class OrcaRuntimeService {
     })
     try {
       await emulator.write(`\x1b[2J\x1b[3J\x1b[H${snapshot.data}`)
-      return visibleNonBlankTerminalLines(emulator.getVisibleLines())
+      return {
+        lines: visibleNonBlankTerminalLines(emulator.getVisibleLines()),
+        cursorContext: emulator.getCursorLineContext(COMPOSER_CURSOR_CONTEXT_ROWS)
+      }
     } finally {
       emulator.dispose()
     }
@@ -18712,6 +18732,8 @@ export class OrcaRuntimeService {
       beforeWrite?: (ptyId: string) => void | Promise<void>
       suffixFailureError?: string
       signal?: AbortSignal
+      /** Append to unsent composer text instead of refusing with AgentPromptPendingInputError. */
+      allowPendingInput?: boolean
     } = {}
   ): Promise<RuntimeTerminalSend> {
     const payload = buildAgentPromptPasteBytes(prompt)
@@ -18727,6 +18749,8 @@ export class OrcaRuntimeService {
         generation,
         async () => {
           this.assertLiveTerminalHandleTargetsPty(handle, pty.pty.ptyId)
+          this.assertAgentPromptGeneration(pty.pty.ptyId, generation)
+          await this.assertNoPendingComposerInput(pty.pty.ptyId, options)
           this.assertAgentPromptGeneration(pty.pty.ptyId, generation)
           return await this.writeTerminalAgentPrompt(
             handle,
@@ -18755,10 +18779,36 @@ export class OrcaRuntimeService {
     const submits = await this.serializeAgentPromptSubmission(leaf.ptyId, generation, async () => {
       this.assertLiveTerminalHandleTargetsPty(handle, leaf.ptyId!)
       this.assertAgentPromptGeneration(leaf.ptyId!, generation)
+      await this.assertNoPendingComposerInput(leaf.ptyId!, options)
+      this.assertAgentPromptGeneration(leaf.ptyId!, generation)
       return await this.writeTerminalAgentPrompt(handle, leaf.ptyId!, generation, payload, options)
     })
     const bytesWritten = Buffer.byteLength(payload, 'utf8') + submits
     return { handle, accepted: true, bytesWritten }
+  }
+
+  // Why: the paste lands wherever the composer cursor is, and Enter submits the whole
+  // row — a user's half-typed draft would ship glued to the prompt (#16289). Only a
+  // rendered draft refuses; an unreadable screen is unknown and never blocks a send.
+  private async assertNoPendingComposerInput(
+    ptyId: string,
+    options: { allowPendingInput?: boolean }
+  ): Promise<void> {
+    if (options.allowPendingInput === true) {
+      return
+    }
+    const pty = this.ptysById.get(ptyId)
+    const agent = pty?.launchAgent ?? pty?.foregroundAgent
+    if (!isTerminalSendSettlementAgent(agent)) {
+      return
+    }
+    const visibleState = await this.readVisibleTerminalState(ptyId)
+    const pendingInput = detectPendingComposerInput(agent, visibleState?.cursorContext, {
+      trustStyle: !isNativeWindowsConptyPty(ptyId)
+    })
+    if (pendingInput !== null) {
+      throw new AgentPromptPendingInputError(pendingInput)
+    }
   }
 
   async getTerminalAgentStatus(handle: string): Promise<RuntimeTerminalAgentStatus> {

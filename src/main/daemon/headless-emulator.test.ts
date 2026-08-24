@@ -725,3 +725,51 @@ describe('HeadlessEmulator', () => {
     })
   })
 })
+
+describe('HeadlessEmulator.getCursorLineContext', () => {
+  let emulator: HeadlessEmulator
+
+  afterEach(() => {
+    emulator?.dispose()
+  })
+
+  it('returns the rows up to the cursor and the text left of it', async () => {
+    emulator = new HeadlessEmulator({ cols: 80, rows: 10 })
+    await emulator.write('history\r\n────────\r\n❯ draft text')
+
+    expect(emulator.getCursorLineContext(8)).toEqual({
+      rows: ['history', '────────', '❯ draft text'],
+      beforeCursor: '❯ draft text',
+      afterCursor: ''
+    })
+  })
+
+  it('drops a dim placeholder right of the cursor but keeps undimmed text', async () => {
+    emulator = new HeadlessEmulator({ cols: 80, rows: 10 })
+    await emulator.write('› \x1b[2mAsk Codex to do anything\x1b[22m\x1b[1;3H')
+
+    expect(emulator.getCursorLineContext(2)).toEqual({
+      rows: ['› Ask Codex to do anything'],
+      beforeCursor: '› ',
+      afterCursor: ''
+    })
+
+    await emulator.write('\x1b[2K\x1b[1;1H❯ Refactor the login page\x1b[1;3H')
+    expect(emulator.getCursorLineContext(2)).toEqual({
+      rows: ['❯ Refactor the login page'],
+      beforeCursor: '❯ ',
+      afterCursor: 'Refactor the login page'
+    })
+  })
+
+  it('bounds the rows above the cursor', async () => {
+    emulator = new HeadlessEmulator({ cols: 80, rows: 10 })
+    await emulator.write('one\r\ntwo\r\nthree\r\n❯ ')
+
+    expect(emulator.getCursorLineContext(1)).toEqual({
+      rows: ['three', '❯ '],
+      beforeCursor: '❯ ',
+      afterCursor: ''
+    })
+  })
+})

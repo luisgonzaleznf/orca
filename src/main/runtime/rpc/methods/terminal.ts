@@ -49,6 +49,7 @@ import {
   MOBILE_SUBSCRIBE_SCROLLBACK_ROWS
 } from '../../scrollback-limits'
 import { assertTerminalAgentSendable } from '../terminal-agent-send-guard'
+import { AgentPromptPendingInputError } from '../../../../shared/agent-composer-pending-input'
 import {
   navigationTargetsHost,
   resolveRuntimeNavigationTarget
@@ -953,6 +954,8 @@ const TerminalSend = TerminalHandle.extend({
     })
     .optional(),
   requireAgentStatus: z.enum(['sendable']).optional(),
+  // Why: opt-in to append to unsent composer text; older hosts strip it and keep appending.
+  allowPendingInput: z.literal(true).optional(),
   // Why: terminal-generated replies are valid input but must not transfer the shared terminal floor.
   inputKind: z.enum(['query-reply']).optional(),
   // Why: identifies the caller for the driver state machine; when absent (older clients) the server falls back to the most recent mobile actor (docs/mobile-presence-lock.md).
@@ -1425,7 +1428,8 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
         result = useSettledAgentPrompt
           ? await runtime.sendTerminalAgentPrompt(params.terminal, params.text!, {
               beforeWrite,
-              signal
+              signal,
+              ...(params.allowPendingInput === true ? { allowPendingInput: true } : {})
             })
           : await runtime.sendTerminal(
               params.terminal,
@@ -1444,6 +1448,17 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
             )
       } catch (error) {
         mobileFloorClaim.current?.rollback()
+        if (error instanceof AgentPromptPendingInputError) {
+          return {
+            send: {
+              handle: params.terminal,
+              accepted: false,
+              bytesWritten: 0,
+              refusedReason: 'pending-input',
+              pendingInput: error.pendingInput
+            }
+          }
+        }
         const refusedReason = getTerminalSendGuardRefusedReason(error)
         if (refusedReason) {
           return {

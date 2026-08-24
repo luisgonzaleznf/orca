@@ -246,7 +246,7 @@ Common Commands:
   orca terminal list [--worktree <selector>] [--limit <n>] [--include-visual-layouts] [--json]
   orca terminal show [--terminal <handle>] [--json]
   orca terminal read [--terminal <handle>] [--cursor <n>] [--limit <n>] [--json]
-  orca terminal send [--terminal <handle>] [--text <text>] [--enter] [--interrupt] [--json]
+  orca terminal send [--terminal <handle>] [--text <text>] [--enter] [--interrupt] [--force] [--json]
   orca terminal wait [--terminal <handle>] --for exit|tui-idle [--timeout-ms <ms>] [--json]
   orca terminal stop --worktree <selector> [--json]
   orca terminal create [--worktree <selector>] [--title <name>] [--command <text>] [--focus] [--json]
@@ -277,6 +277,7 @@ Terminal Send Options:
   --text <text>             Text to send to the terminal
   --enter                   Append Enter after sending text
   --interrupt               Send as an interrupt-style input when supported
+  --force                   Append to unsent Claude Code/Codex composer input instead of refusing (pending-input)
 
 Terminal List Options:
   --include-visual-layouts  Include tab and pane topology in JSON output
@@ -521,6 +522,11 @@ function formatCommandFlagHelp(flag: string, commandPath: string[]): string {
   // which is the wrong meaning here — this selects the account provider.
   if (command === 'account add' && flag === 'agent') {
     return '--agent <id>           Account provider: claude or codex (default claude)'
+  }
+  // Why: the shared --force help describes worktree removal; here it overrides the
+  // pending-input refusal that protects a user's unsent composer draft.
+  if (command === 'terminal send' && flag === 'force') {
+    return '--force                Append to unsent Claude Code/Codex composer input instead of refusing (pending-input)'
   }
   if (flag === 'key' && command === 'computer hotkey') {
     return '--key <key-combo>      Modifier chord with one key, e.g. CmdOrCtrl+A'

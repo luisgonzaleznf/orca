@@ -23,6 +23,8 @@ import {
 import { installDeviceAttributesResponder } from './startup-device-attributes-responder'
 import type { TerminalSnapshot, TerminalModes } from './types'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
+import type { TerminalCursorContext } from '../../shared/agent-composer-pending-input'
+import { readTerminalCursorLineContext } from './terminal-cursor-line-context'
 
 export type HeadlessEmulatorOptions = {
   cols: number
@@ -291,6 +293,10 @@ export class HeadlessEmulator {
     const upToCursor = line.translateToString(true, 0, buffer.cursorX).trimEnd()
     const fullLine = line.translateToString(true).trimEnd()
     return fullLine === upToCursor && upToCursor.endsWith('>') && !upToCursor.endsWith('>>')
+  }
+
+  getCursorLineContext(rowsAbove: number): TerminalCursorContext | null {
+    return readTerminalCursorLineContext(this.terminal.buffer.active, rowsAbove)
   }
 
   getVisibleLines(): string[] {
