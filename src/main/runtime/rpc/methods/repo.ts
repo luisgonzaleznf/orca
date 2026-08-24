@@ -2,8 +2,13 @@ import { z } from 'zod'
 import { defineMethod, type RpcMethod } from '../core'
 import { OptionalFiniteNumber, OptionalString, requiredString } from '../schemas'
 import { PROJECT_RUNTIME_METHODS } from './project-runtime-rpc-methods'
+import { COLLECTION_METHODS } from './collection'
 import { FOLDER_WORKSPACE_METHODS } from './folder-workspace'
 import { createRepoUpdateSchema } from './repo-update-schema'
+import {
+  projectRepoResultVisibilityForClient,
+  projectRepoVisibilityForClient
+} from '../repo-visibility-projection'
 
 const RepoSelector = z.object({
   repo: requiredString('Missing repo selector')
@@ -104,32 +109,17 @@ const RepoSparsePresetSave = RepoSelector.extend({
   directories: z.array(z.string())
 })
 
-const CollectionCreate = z.object({
-  name: requiredString('Missing collection name'),
-  color: z.string().nullable().optional()
-})
-
-const CollectionUpdate = z.object({
-  collectionId: requiredString('Missing collection id'),
-  updates: z.object({
-    name: OptionalString,
-    color: z.string().nullable().optional(),
-    isCollapsed: z.boolean().optional(),
-    order: OptionalFiniteNumber
-  })
-})
-
-const CollectionSelector = z.object({
-  collectionId: requiredString('Missing collection id')
-})
-
 export const REPO_METHODS: RpcMethod[] = [
   defineMethod({
     name: 'repo.list',
     params: null,
-    handler: (_params, { runtime }) => {
-      runtime.enrichMissingRepoGitRemoteIdentities?.()
-      return { repos: runtime.listRepos() }
+    handler: (_params, context) => {
+      context.runtime.enrichMissingRepoGitRemoteIdentities?.()
+      return {
+        repos: context.runtime
+          .listRepos()
+          .map((repo) => projectRepoVisibilityForClient(repo, context))
+      }
     }
   }),
   ...PROJECT_RUNTIME_METHODS,
@@ -157,35 +147,15 @@ export const REPO_METHODS: RpcMethod[] = [
     params: ProjectGroupSelector,
     handler: async (params, { runtime }) => runtime.deleteProjectGroup(params.groupId)
   }),
-  defineMethod({
-    name: 'collection.list',
-    params: null,
-    handler: (_params, { runtime }) => ({ collections: runtime.listCollections() })
-  }),
-  defineMethod({
-    name: 'collection.create',
-    params: CollectionCreate,
-    handler: async (params, { runtime }) => ({
-      collection: await runtime.createCollection(params)
-    })
-  }),
-  defineMethod({
-    name: 'collection.update',
-    params: CollectionUpdate,
-    handler: async (params, { runtime }) => ({
-      collection: await runtime.updateCollection(params.collectionId, params.updates)
-    })
-  }),
-  defineMethod({
-    name: 'collection.delete',
-    params: CollectionSelector,
-    handler: async (params, { runtime }) => runtime.deleteCollection(params.collectionId)
-  }),
+  ...COLLECTION_METHODS,
   defineMethod({
     name: 'projectGroup.moveProject',
     params: ProjectGroupMoveProject,
-    handler: async (params, { runtime }) => ({
-      repo: await runtime.moveProjectToGroup(params.repo, params.groupId ?? null, params.order)
+    handler: async (params, context) => ({
+      repo: projectRepoVisibilityForClient(
+        await context.runtime.moveProjectToGroup(params.repo, params.groupId ?? null, params.order),
+        context
+      )
     })
   }),
   ...FOLDER_WORKSPACE_METHODS,
@@ -220,15 +190,21 @@ export const REPO_METHODS: RpcMethod[] = [
   defineMethod({
     name: 'repo.add',
     params: RepoPath,
-    handler: async (params, { runtime }) => ({
-      repo: await runtime.addRepo(params.path, params.kind)
+    handler: async (params, context) => ({
+      repo: projectRepoVisibilityForClient(
+        await context.runtime.addRepo(params.path, params.kind),
+        context
+      )
     })
   }),
   defineMethod({
     name: 'repo.create',
     params: RepoCreate,
-    handler: async (params, { runtime }) =>
-      runtime.createRepo(params.parentPath, params.name, params.kind)
+    handler: async (params, context) =>
+      projectRepoResultVisibilityForClient(
+        await context.runtime.createRepo(params.parentPath, params.name, params.kind),
+        context
+      )
   }),
   defineMethod({
     name: 'repo.gitAvailable',
@@ -238,22 +214,30 @@ export const REPO_METHODS: RpcMethod[] = [
   defineMethod({
     name: 'repo.clone',
     params: RepoClone,
-    handler: async (params, { runtime }) => ({
-      repo: await runtime.cloneRepo(params.url, params.destination)
+    handler: async (params, context) => ({
+      repo: projectRepoVisibilityForClient(
+        await context.runtime.cloneRepo(params.url, params.destination),
+        context
+      )
     })
   }),
   defineMethod({
     name: 'repo.show',
     params: RepoSelector,
-    handler: async (params, { runtime }) => ({ repo: await runtime.showRepo(params.repo) })
+    handler: async (params, context) => ({
+      repo: projectRepoVisibilityForClient(await context.runtime.showRepo(params.repo), context)
+    })
   }),
   defineMethod({
     name: 'repo.update',
     params: RepoUpdate,
-    handler: async (params, { runtime }) => ({
-      repo: await runtime.updateRepo(
-        params.repo,
-        params.updates as Parameters<typeof runtime.updateRepo>[1]
+    handler: async (params, context) => ({
+      repo: projectRepoVisibilityForClient(
+        await context.runtime.updateRepo(
+          params.repo,
+          params.updates as Parameters<typeof context.runtime.updateRepo>[1]
+        ),
+        context
       )
     })
   }),
@@ -270,8 +254,11 @@ export const REPO_METHODS: RpcMethod[] = [
   defineMethod({
     name: 'repo.setBaseRef',
     params: RepoSetBaseRef,
-    handler: async (params, { runtime }) => ({
-      repo: await runtime.setRepoBaseRef(params.repo, params.ref)
+    handler: async (params, context) => ({
+      repo: projectRepoVisibilityForClient(
+        await context.runtime.setRepoBaseRef(params.repo, params.ref),
+        context
+      )
     })
   }),
   defineMethod({

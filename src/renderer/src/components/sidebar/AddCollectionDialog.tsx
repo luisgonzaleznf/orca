@@ -14,7 +14,9 @@ import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useAppStore } from '@/store'
 import { assignCollectionMembership } from '../../../../shared/collections'
-import type { Collection, Repo, Worktree } from '../../../../shared/types'
+import type { Collection } from '../../../../shared/collection-types'
+import type { Repo } from '../../../../shared/repo-types'
+import type { Worktree } from '../../../../shared/worktree/types'
 import { translate } from '@/i18n/i18n'
 
 type AddCollectionDialogProps = {
@@ -89,7 +91,7 @@ export function AddCollectionDialog({
     () =>
       repos.map((repo) => ({
         repo,
-        worktrees: (worktreesByRepo[repo.id] ?? []).filter(
+        worktrees: (worktreesByRepo?.[repo.id] ?? []).filter(
           (worktree) =>
             !worktree.isArchived && !(collection && worktree.collectionIds?.includes(collection.id))
         )

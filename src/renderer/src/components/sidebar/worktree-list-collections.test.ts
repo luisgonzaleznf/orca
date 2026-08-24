@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { buildCollectionRows, insertCollectionRowsAfterPinned } from './worktree-list-collections'
-import type { Row } from './worktree-list-groups'
-import type { Collection, Repo, Worktree } from '../../../../shared/types'
+import type { Row } from './worktree-list/grouping/row-types'
+import type { Collection } from '../../../../shared/collection-types'
+import type { Repo } from '../../../../shared/repo-types'
+import type { Worktree } from '../../../../shared/worktree/types'
 
 function makeRepo(id: string, displayName: string): Repo {
   return { id, path: `/repo/${id}`, displayName, badgeColor: '#000', addedAt: 1 }

@@ -1,5 +1,5 @@
 import type { WorktreeDragGroup } from './worktree-manual-order'
-import { ALL_GROUP_KEY, PINNED_GROUP_KEY } from './worktree-list-groups'
+import { ALL_GROUP_KEY, PINNED_GROUP_KEY } from './worktree-list/grouping/group-keys'
 import { isCollectionSectionKey } from './worktree-list-collections'
 
 export type WorktreeDragUnitGroup = WorktreeDragGroup & {

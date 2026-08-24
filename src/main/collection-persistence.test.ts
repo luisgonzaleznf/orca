@@ -1,50 +1,19 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { GitWorktreeInfo, PersistedState } from '../shared/types'
+import type { GitWorktreeInfo } from '../shared/worktree/types'
+import type { PersistedState } from '../shared/persisted-state-types'
 import { mergeWorktree } from './ipc/worktree-metadata-merge'
-
-const testState = { dir: '' }
-
-vi.mock('electron', () => ({
-  app: {
-    getPath: () => testState.dir
-  },
-  safeStorage: {
-    isEncryptionAvailable: () => true,
-    encryptString: (plaintext: string) => Buffer.from(`encrypted:${plaintext}`, 'utf-8'),
-    decryptString: (ciphertext: Buffer) => ciphertext.toString('utf-8').slice('encrypted:'.length)
-  }
-}))
-
-vi.mock('./telemetry/client', () => ({
-  track: vi.fn()
-}))
-
-vi.mock('./telemetry/cohort-classifier', () => ({
-  getCohortAtEmit: vi.fn().mockReturnValue({ nth_repo_added: 2 })
-}))
-
-/** Reset modules and dynamically import Store so the data-file path picks up testState.dir. */
-async function createStore() {
-  vi.resetModules()
-  const { Store, initDataPath } = await import('./persistence')
-  initDataPath()
-  return new Store()
-}
-
-function dataFile(): string {
-  return join(testState.dir, 'orca-data.json')
-}
-
-function writeDataFile(data: unknown): void {
-  mkdirSync(testState.dir, { recursive: true })
-  writeFileSync(dataFile(), JSON.stringify(data, null, 2), 'utf-8')
-}
+import {
+  createStore,
+  readDataFile as readDataFileUntyped,
+  testState,
+  writeDataFile
+} from './persistence-test-harness'
 
 function readDataFile(): PersistedState {
-  return JSON.parse(readFileSync(dataFile(), 'utf-8')) as PersistedState
+  return readDataFileUntyped() as PersistedState
 }
 
 describe('Store collections', () => {

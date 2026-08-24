@@ -1,6 +1,6 @@
 import { ipcMain, type BrowserWindow } from 'electron'
 import { z } from 'zod'
-import type { Collection } from '../../shared/types'
+import type { Collection } from '../../shared/collection-types'
 import type { Store } from '../persistence'
 
 // Why: nonempty names match the runtime RPC contract (requiredString) so both

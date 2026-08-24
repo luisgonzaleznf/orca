@@ -1,6 +1,6 @@
 import { beforeEach, vi, type Mock } from 'vitest'
 import { toast } from 'sonner'
-import type { Repo } from '../../../../shared/types'
+import type { Repo } from '../../../../shared/repo-types'
 import {
   createCompatibleRuntimeStatusResponseIfNeeded,
   type RuntimeEnvironmentCallRequest
@@ -57,6 +57,8 @@ export const runtimeEnvironmentCall: Mock = vi.fn()
 export const runtimeEnvironmentTransportCall: Mock = vi.fn()
 export const orcaProfileFindProjectProfiles: Mock = vi.fn()
 export const uiSet: Mock = vi.fn()
+export const ephemeralVmListRuntimes: Mock = vi.fn()
+export const ephemeralVmCleanup: Mock = vi.fn()
 
 // Registers the per-test reset + window stub. Call once inside the suite's module scope.
 export function installReposRuntimeRoutingHarness(): void {
@@ -88,6 +90,8 @@ export function installReposRuntimeRoutingHarness(): void {
     runtimeEnvironmentTransportCall.mockReset()
     uiSet.mockReset()
     uiSet.mockResolvedValue(undefined)
+    ephemeralVmListRuntimes.mockReset().mockResolvedValue([])
+    ephemeralVmCleanup.mockReset()
     runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
       return createCompatibleRuntimeStatusResponseIfNeeded(args) ?? runtimeEnvironmentCall(args)
     })
@@ -122,6 +126,10 @@ export function installReposRuntimeRoutingHarness(): void {
         },
         pty: { kill: ptyKill },
         runtimeEnvironments: { call: runtimeEnvironmentTransportCall },
+        ephemeralVm: {
+          listRuntimes: ephemeralVmListRuntimes,
+          cleanup: ephemeralVmCleanup
+        },
         ui: { set: uiSet }
       }
     })

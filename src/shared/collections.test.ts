@@ -13,7 +13,7 @@ import {
   removeCollectionId,
   sortCollectionsByOrder
 } from './collections'
-import type { Collection } from './types'
+import type { Collection } from './collection-types'
 
 function makeCollection(id: string, name: string, order: number): Collection {
   return { id, name, color: null, isCollapsed: false, order, createdAt: 1, updatedAt: 1 }

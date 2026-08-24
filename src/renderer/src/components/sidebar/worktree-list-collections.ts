@@ -1,7 +1,10 @@
 import { Layers } from 'lucide-react'
 import { sortCollectionsByOrder } from '../../../../shared/collections'
-import type { Collection, Repo, Worktree } from '../../../../shared/types'
-import { PINNED_GROUP_KEY, type Row } from './worktree-list-groups'
+import type { Collection } from '../../../../shared/collection-types'
+import type { Repo } from '../../../../shared/repo-types'
+import type { Worktree } from '../../../../shared/worktree/types'
+import { PINNED_GROUP_KEY } from './worktree-list/grouping/group-keys'
+import type { Row } from './worktree-list/grouping/row-types'
 
 export const COLLECTION_GROUP_META = {
   tone: 'text-foreground',

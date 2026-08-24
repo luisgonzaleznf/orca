@@ -1,4 +1,4 @@
-import type { Collection } from './types'
+import type { Collection } from './collection-types'
 
 function createCollectionId(): string {
   const randomUUID = globalThis.crypto?.randomUUID
