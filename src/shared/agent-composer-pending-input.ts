@@ -3,6 +3,8 @@ export type TerminalCursorContext = {
   rows: string[]
   /** `rows` with dim cells dropped: what the user typed, minus agent placeholders. */
   typedRows: string[]
+  /** A few rows after the cursor row; only read as evidence of a dialog option list. */
+  rowsBelow?: string[]
   beforeCursor: string
   /** Text right of the cursor, excluding dim cells (agent placeholders render dim). */
   afterCursor: string
@@ -26,16 +28,30 @@ const COMPOSER_PROMPT_GLYPH: Record<ComposerPendingInputAgent, string> = {
 
 /** Rows above the cursor row that can still belong to a multi-line draft. */
 export const COMPOSER_CURSOR_CONTEXT_ROWS = 16
+/** Rows below the cursor row needed to recognize a dialog option list. */
+export const COMPOSER_CURSOR_CONTEXT_ROWS_BELOW = 2
 
-const HORIZONTAL_RULE = /^\s*─{3,}/
-// Why: transcript bullets, spinners, and turn markers sit between an echoed prompt and
-// the composer; crossing one means the cursor is not inside a draft.
-const TRANSCRIPT_MARKER = /^\s*[•·✻✳⏺]/
-// Why: the selected option of a permission/trust dialog renders with the same glyph.
 const NUMBERED_OPTION = /^\s*\d+\.\s/
 
-function isComposerPromptRow(row: string, glyph: string): boolean {
-  return row.startsWith(glyph) && !NUMBERED_OPTION.test(row.slice(glyph.length))
+// Why: a permission/trust dialog draws its selected option with the composer glyph, so
+// the evidence is the option *list* — a numbered row directly under a numbered glyph row —
+// not the glyph row's own text, which a draft like `1. First step` shares.
+function isDialogOptionRow(row: string, glyph: string, nextRow: string | undefined): boolean {
+  return (
+    NUMBERED_OPTION.test(row.slice(glyph.length)) &&
+    nextRow !== undefined &&
+    NUMBERED_OPTION.test(nextRow)
+  )
+}
+
+function isComposerPromptRow(row: string, glyph: string, nextRow: string | undefined): boolean {
+  return row.startsWith(glyph) && !isDialogOptionRow(row, glyph, nextRow)
+}
+
+// Why: both agents indent every draft continuation row under the glyph, so content at
+// column 0 (rules, transcript bullets, echoed prompts) is never part of the draft.
+function isDraftContinuationRow(row: string): boolean {
+  return row.length === 0 || /^\s/.test(row)
 }
 
 /**
@@ -54,14 +70,19 @@ export function detectPendingComposerInput(
   const trustStyle = options.trustStyle !== false
   const typedRows = trustStyle ? context.typedRows : context.rows
   const cursorRowIndex = context.rows.length - 1
+  const rowAfter = (index: number): string | undefined =>
+    index + 1 <= cursorRowIndex ? context.rows[index + 1] : context.rowsBelow?.[0]
   const cursorRowText = `${context.beforeCursor}${trustStyle ? context.afterCursor : ''}`
-  if (isComposerPromptRow(context.rows[cursorRowIndex]!, glyph)) {
+  if (isComposerPromptRow(context.rows[cursorRowIndex]!, glyph, rowAfter(cursorRowIndex))) {
     const draft = cursorRowText.slice(glyph.length).trim()
     return draft.length > 0 ? draft : null
   }
+  if (!isDraftContinuationRow(context.rows[cursorRowIndex]!)) {
+    return null
+  }
   for (let index = cursorRowIndex - 1; index >= 0; index -= 1) {
     const row = context.rows[index]!
-    if (isComposerPromptRow(row, glyph)) {
+    if (isComposerPromptRow(row, glyph, rowAfter(index))) {
       const lines = [
         (typedRows[index] ?? row).slice(glyph.length),
         ...typedRows.slice(index + 1, cursorRowIndex),
@@ -73,7 +94,7 @@ export function detectPendingComposerInput(
         .trim()
       return draft.length > 0 ? draft : null
     }
-    if (HORIZONTAL_RULE.test(row) || TRANSCRIPT_MARKER.test(row)) {
+    if (!isDraftContinuationRow(row)) {
       return null
     }
   }

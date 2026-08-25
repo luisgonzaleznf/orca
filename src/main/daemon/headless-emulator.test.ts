@@ -740,6 +740,7 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
     expect(emulator.getCursorLineContext(8)).toEqual({
       rows: ['history', '────────', '❯ draft text'],
       typedRows: ['history', '────────', '❯ draft text'],
+      rowsBelow: ['', ''],
       beforeCursor: '❯ draft text',
       afterCursor: ''
     })
@@ -752,6 +753,7 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
     expect(emulator.getCursorLineContext(2)).toEqual({
       rows: ['› Ask Codex to do anything'],
       typedRows: ['›'],
+      rowsBelow: ['', ''],
       beforeCursor: '› ',
       afterCursor: ''
     })
@@ -760,8 +762,20 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
     expect(emulator.getCursorLineContext(2)).toEqual({
       rows: ['❯ Refactor the login page'],
       typedRows: ['❯ Refactor the login page'],
+      rowsBelow: ['', ''],
       beforeCursor: '❯ ',
       afterCursor: 'Refactor the login page'
+    })
+  })
+
+  it('includes the rows under the cursor that reveal a dialog option list', async () => {
+    emulator = new HeadlessEmulator({ cols: 80, rows: 10 })
+    await emulator.write('❯ 1. Yes, I trust this folder\r\n  2. No, exit\x1b[1;3H')
+
+    expect(emulator.getCursorLineContext(2)).toMatchObject({
+      rows: ['❯ 1. Yes, I trust this folder'],
+      rowsBelow: ['  2. No, exit', ''],
+      beforeCursor: '❯ '
     })
   })
 
@@ -772,6 +786,7 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
     expect(emulator.getCursorLineContext(1)).toEqual({
       rows: ['three', '❯ '],
       typedRows: ['three', '❯'],
+      rowsBelow: ['', ''],
       beforeCursor: '❯ ',
       afterCursor: ''
     })

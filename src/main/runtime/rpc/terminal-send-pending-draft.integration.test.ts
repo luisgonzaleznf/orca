@@ -7,8 +7,20 @@ import { AGENT_PROMPT_BRACKETED_PASTE_START } from '../../../shared/agent-prompt
 
 const CLAUDE_RULE = '─'.repeat(60)
 
-function request(params: unknown): RpcRequest {
-  return { id: 'request-1', authToken: 'test-token', method: 'terminal.send', params }
+function cliPrompt(handle: string, text: string, extra: Record<string, unknown> = {}): RpcRequest {
+  return {
+    id: 'request-1',
+    authToken: 'test-token',
+    method: 'terminal.send',
+    params: {
+      terminal: handle,
+      text,
+      enter: true,
+      agentPrompt: true,
+      client: { id: 'orca-cli', type: 'desktop' },
+      ...extra
+    }
+  }
 }
 
 async function makeClaudeRuntime(composerRow: string): Promise<{
@@ -16,8 +28,15 @@ async function makeClaudeRuntime(composerRow: string): Promise<{
   write: ReturnType<typeof vi.fn>
   handle: string
 }> {
-  const write = vi.fn(() => true)
   const runtime = new OrcaRuntimeService()
+  // Why: submission is verified by the agent starting a turn, which a live Claude reports
+  // through its title; the mock echoes that once Enter arrives so accepted sends resolve.
+  const write = vi.fn((ptyId: string, data: string) => {
+    if (data === '\r') {
+      runtime.onPtyData(ptyId, '\x1b]0;✻ Claude working\x07', Date.now())
+    }
+    return true
+  })
   runtime.setPtyController({
     write,
     kill: () => true,
@@ -53,6 +72,21 @@ async function makeClaudeRuntime(composerRow: string): Promise<{
   return { runtime, write, handle: terminal.handle }
 }
 
+async function expectPasted(
+  send: Promise<unknown>,
+  write: ReturnType<typeof vi.fn>,
+  text: string
+): Promise<void> {
+  await vi.waitFor(() => expect(write).toHaveBeenCalled())
+  expect(String(write.mock.calls[0]?.[1])).toContain(`${AGENT_PROMPT_BRACKETED_PASTE_START}${text}`)
+  await vi.runAllTimersAsync()
+  expect(await send).toMatchObject({
+    ok: true,
+    result: { send: { accepted: true, bytesWritten: expect.any(Number) } }
+  })
+  expect(write.mock.calls.some((call) => call[1] === '\r')).toBe(true)
+}
+
 describe('terminal.send into a composer with unsent input', () => {
   afterEach(() => vi.useRealTimers())
 
@@ -63,13 +97,7 @@ describe('terminal.send into a composer with unsent input', () => {
     const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 
     const response = await dispatcher.dispatch(
-      request({
-        terminal: handle,
-        text: 'Status update from the other terminal: the build is green.',
-        enter: true,
-        agentPrompt: true,
-        client: { id: 'orca-cli', type: 'desktop' }
-      })
+      cliPrompt(handle, 'Status update from the other terminal: the build is green.')
     )
 
     expect(response).toMatchObject({
@@ -94,13 +122,7 @@ describe('terminal.send into a composer with unsent input', () => {
     const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 
     const response = await dispatcher.dispatch(
-      request({
-        terminal: handle,
-        text: 'Status update from the other terminal: the build is green.',
-        enter: true,
-        agentPrompt: true,
-        client: { id: 'orca-cli', type: 'desktop' }
-      })
+      cliPrompt(handle, 'Status update from the other terminal: the build is green.')
     )
 
     expect(response).toMatchObject({
@@ -123,45 +145,25 @@ describe('terminal.send into a composer with unsent input', () => {
     )
     const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 
-    const send = dispatcher.dispatch(
-      request({
-        terminal: handle,
-        text: 'review this change',
-        enter: true,
-        agentPrompt: true,
-        client: { id: 'orca-cli', type: 'desktop' }
-      })
+    await expectPasted(
+      dispatcher.dispatch(cliPrompt(handle, 'review this change')),
+      write,
+      'review this change'
     )
-    await vi.waitFor(() => expect(write).toHaveBeenCalled())
-    expect(String(write.mock.calls[0]?.[1])).toContain(
-      `${AGENT_PROMPT_BRACKETED_PASTE_START}review this change`
-    )
-    await vi.runAllTimersAsync()
-    await send.catch(() => undefined)
   })
 
-  it('does not read a permission dialog option row as a draft', async () => {
+  it('does not read a permission dialog option list as a draft', async () => {
     vi.useFakeTimers()
     const { runtime, write, handle } = await makeClaudeRuntime(
       'Do you trust the files in this folder?\r\n❯ 1. Yes, I trust this folder\r\n  2. No, exit\x1b[A\x1b[3G'
     )
     const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 
-    const send = dispatcher.dispatch(
-      request({
-        terminal: handle,
-        text: 'review this change',
-        enter: true,
-        agentPrompt: true,
-        client: { id: 'orca-cli', type: 'desktop' }
-      })
+    await expectPasted(
+      dispatcher.dispatch(cliPrompt(handle, 'review this change')),
+      write,
+      'review this change'
     )
-    await vi.waitFor(() => expect(write).toHaveBeenCalled())
-    await vi.runAllTimersAsync()
-    const response = await send
-    expect(response).not.toMatchObject({
-      result: { send: { refusedReason: 'pending-input' } }
-    })
   })
 
   it('pastes into an empty composer', async () => {
@@ -169,21 +171,11 @@ describe('terminal.send into a composer with unsent input', () => {
     const { runtime, write, handle } = await makeClaudeRuntime('❯ ')
     const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 
-    const send = dispatcher.dispatch(
-      request({
-        terminal: handle,
-        text: 'review this change',
-        enter: true,
-        agentPrompt: true,
-        client: { id: 'orca-cli', type: 'desktop' }
-      })
+    await expectPasted(
+      dispatcher.dispatch(cliPrompt(handle, 'review this change')),
+      write,
+      'review this change'
     )
-    await vi.waitFor(() => expect(write).toHaveBeenCalled())
-    expect(String(write.mock.calls[0]?.[1])).toContain(
-      `${AGENT_PROMPT_BRACKETED_PASTE_START}review this change`
-    )
-    await vi.runAllTimersAsync()
-    await send.catch(() => undefined)
   })
 
   it('appends to the draft when the caller opts in with allowPendingInput', async () => {
@@ -191,21 +183,10 @@ describe('terminal.send into a composer with unsent input', () => {
     const { runtime, write, handle } = await makeClaudeRuntime('❯ keep this draft')
     const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 
-    const send = dispatcher.dispatch(
-      request({
-        terminal: handle,
-        text: ' and this',
-        enter: true,
-        agentPrompt: true,
-        allowPendingInput: true,
-        client: { id: 'orca-cli', type: 'desktop' }
-      })
+    await expectPasted(
+      dispatcher.dispatch(cliPrompt(handle, ' and this', { allowPendingInput: true })),
+      write,
+      ' and this'
     )
-    await vi.waitFor(() => expect(write).toHaveBeenCalled())
-    expect(String(write.mock.calls[0]?.[1])).toContain(
-      `${AGENT_PROMPT_BRACKETED_PASTE_START} and this`
-    )
-    await vi.runAllTimersAsync()
-    await send.catch(() => undefined)
   })
 })

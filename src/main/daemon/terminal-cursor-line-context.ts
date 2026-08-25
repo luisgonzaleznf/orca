@@ -1,5 +1,8 @@
 import type { IBuffer, IBufferLine } from '@xterm/headless'
-import type { TerminalCursorContext } from '../../shared/agent-composer-pending-input'
+import {
+  COMPOSER_CURSOR_CONTEXT_ROWS_BELOW,
+  type TerminalCursorContext
+} from '../../shared/agent-composer-pending-input'
 
 // Why: agent composers draw their placeholder dim, so dropping dim cells leaves only typed text.
 function undimmedText(line: IBufferLine, fromX = 0): string {
@@ -31,9 +34,15 @@ export function readTerminalCursorLineContext(
     rows.push(line?.translateToString(true) ?? '')
     typedRows.push(line ? undimmedText(line) : '')
   }
+  const rowsBelow: string[] = []
+  const end = Math.min(buffer.length - 1, cursorRow + COMPOSER_CURSOR_CONTEXT_ROWS_BELOW)
+  for (let row = cursorRow + 1; row <= end; row += 1) {
+    rowsBelow.push(buffer.getLine(row)?.translateToString(true) ?? '')
+  }
   return {
     rows,
     typedRows,
+    rowsBelow,
     beforeCursor: cursorLine.translateToString(true, 0, buffer.cursorX),
     afterCursor: undimmedText(cursorLine, buffer.cursorX)
   }

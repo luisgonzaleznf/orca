@@ -30,7 +30,7 @@ describe('detectPendingComposerInput', () => {
     expect(
       detectPendingComposerInput('codex', {
         rows: ['• You have 1 usage limit reset available.', '› Ask Codex to do anything'],
-        typedRows: ['• You have 1 usage limit reset available.', '› Ask Codex to do anything'],
+        typedRows: ['• You have 1 usage limit reset available.', '›'],
         beforeCursor: '› ',
         afterCursor: ''
       })
@@ -59,12 +59,56 @@ describe('detectPendingComposerInput', () => {
     ).toBe('first line\nsecond line\nthird')
   })
 
+  it('keeps a multi-paragraph draft that contains a blank row', () => {
+    expect(
+      detectPendingComposerInput('claude', {
+        rows: [CLAUDE_RULE, '❯ para one', '', '  para two'],
+        typedRows: [CLAUDE_RULE, '❯ para one', '', '  para two'],
+        beforeCursor: '  para two',
+        afterCursor: ''
+      })
+    ).toBe('para one\n\npara two')
+  })
+
+  it('keeps a bulleted continuation line', () => {
+    expect(
+      detectPendingComposerInput('codex', {
+        rows: ['› first', '  • second'],
+        typedRows: ['› first', '  • second'],
+        beforeCursor: '  • second',
+        afterCursor: ''
+      })
+    ).toBe('first\n• second')
+  })
+
   it('does not read transcript history above a rule as a draft', () => {
     expect(
       detectPendingComposerInput('claude', {
         rows: ['❯ an earlier prompt', '· Drizzling…', CLAUDE_RULE, '  cursor parked here'],
         typedRows: ['❯ an earlier prompt', '· Drizzling…', CLAUDE_RULE, '  cursor parked here'],
         beforeCursor: '  cursor parked here',
+        afterCursor: ''
+      })
+    ).toBeNull()
+  })
+
+  it('stops at a column-zero transcript row between an echoed prompt and the caret', () => {
+    expect(
+      detectPendingComposerInput('codex', {
+        rows: ['› an earlier prompt', '• Working (0s • esc to interrupt)', '  status row'],
+        typedRows: ['› an earlier prompt', '• Working (0s • esc to interrupt)', '  status row'],
+        beforeCursor: '  status row',
+        afterCursor: ''
+      })
+    ).toBeNull()
+  })
+
+  it('does not read a column-zero row under the composer as a continuation', () => {
+    expect(
+      detectPendingComposerInput('codex', {
+        rows: ['› draft', 'gpt-5 high · ~/repo'],
+        typedRows: ['› draft', 'gpt-5 high · ~/repo'],
+        beforeCursor: 'gpt-5 high · ~/repo',
         afterCursor: ''
       })
     ).toBeNull()
@@ -125,30 +169,12 @@ describe('detectPendingComposerInput', () => {
     ).toBe('fix the flaky test')
   })
 
-  it('keeps a multi-paragraph draft that contains a blank row', () => {
+  it('does not read a permission dialog option list as a draft', () => {
+    const question = 'Do you trust the files in this folder?'
     expect(
       detectPendingComposerInput('claude', {
-        rows: [CLAUDE_RULE, '❯ para one', '', '  para two'],
-        typedRows: [CLAUDE_RULE, '❯ para one', '', '  para two'],
-        beforeCursor: '  para two',
-        afterCursor: ''
-      })
-    ).toBe('para one\n\npara two')
-  })
-
-  it('does not read a permission dialog option row as a draft', () => {
-    expect(
-      detectPendingComposerInput('claude', {
-        rows: [
-          'Do you trust the files in this folder?',
-          '❯ 1. Yes, I trust this folder',
-          '  2. No, exit'
-        ],
-        typedRows: [
-          'Do you trust the files in this folder?',
-          '❯ 1. Yes, I trust this folder',
-          '  2. No, exit'
-        ],
+        rows: [question, '❯ 1. Yes, I trust this folder', '  2. No, exit'],
+        typedRows: [question, '❯ 1. Yes, I trust this folder', '  2. No, exit'],
         beforeCursor: '  2. No, exit',
         afterCursor: ''
       })
@@ -157,21 +183,23 @@ describe('detectPendingComposerInput', () => {
       detectPendingComposerInput('claude', {
         rows: ['❯ 1. Yes, I trust this folder'],
         typedRows: ['❯ 1. Yes, I trust this folder'],
+        rowsBelow: ['  2. No, exit', ''],
         beforeCursor: '❯ 1. Yes, I trust this folder',
         afterCursor: ''
       })
     ).toBeNull()
   })
 
-  it('stops at a transcript marker between an echoed prompt and the caret', () => {
+  it('keeps a draft whose first line is numbered when no option list follows', () => {
     expect(
-      detectPendingComposerInput('codex', {
-        rows: ['› an earlier prompt', '• Working (0s • esc to interrupt)', '  status row'],
-        typedRows: ['› an earlier prompt', '• Working (0s • esc to interrupt)', '  status row'],
-        beforeCursor: '  status row',
+      detectPendingComposerInput('claude', {
+        rows: [CLAUDE_RULE, '❯ 1. First step'],
+        typedRows: [CLAUDE_RULE, '❯ 1. First step'],
+        rowsBelow: [CLAUDE_RULE, '  ⏵⏵ auto mode on'],
+        beforeCursor: '❯ 1. First step',
         afterCursor: ''
       })
-    ).toBeNull()
+    ).toBe('1. First step')
   })
 
   it('drops dim placeholder text from a glyph row reached from a continuation row', () => {
@@ -191,7 +219,7 @@ describe('detectPendingComposerInput', () => {
         'codex',
         {
           rows: ['› Ask Codex to do anything'],
-          typedRows: ['› Ask Codex to do anything'],
+          typedRows: ['›'],
           beforeCursor: '› ',
           afterCursor: 'Ask Codex to do anything'
         },
