@@ -154,8 +154,9 @@ describe('terminal.send into a composer with unsent input', () => {
 
   it('does not read a permission dialog option list as a draft', async () => {
     vi.useFakeTimers()
+    // Why: as Claude Code 2.1.246 draws it — glyph indented one column, cursor hidden.
     const { runtime, write, handle } = await makeClaudeRuntime(
-      'Do you trust the files in this folder?\r\n❯ 1. Yes, I trust this folder\r\n  2. No, exit\x1b[A\x1b[3G'
+      ' Do you want to create hello.txt?\r\n ❯ 1. Yes\r\n   2. No\x1b[A\x1b[2G\x1b[?25l'
     )
     const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
 

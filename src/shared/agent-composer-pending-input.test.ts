@@ -169,37 +169,28 @@ describe('detectPendingComposerInput', () => {
     ).toBe('fix the flaky test')
   })
 
-  it('does not read a permission dialog option list as a draft', () => {
-    const question = 'Do you trust the files in this folder?'
+  it('does not read a dialog as a draft: the cursor is hidden while one is open', () => {
     expect(
-      detectPendingComposerInput('claude', {
-        rows: [question, '❯ 1. Yes, I trust this folder', '  2. No, exit'],
-        typedRows: [question, '❯ 1. Yes, I trust this folder', '  2. No, exit'],
-        beforeCursor: '  2. No, exit',
-        afterCursor: ''
-      })
-    ).toBeNull()
-    expect(
-      detectPendingComposerInput('claude', {
-        rows: ['❯ 1. Yes, I trust this folder'],
-        typedRows: ['❯ 1. Yes, I trust this folder'],
-        rowsBelow: ['  2. No, exit', ''],
-        beforeCursor: '❯ 1. Yes, I trust this folder',
-        afterCursor: ''
+      detectPendingComposerInput('codex', {
+        rows: ['› 1. Yes, continue', '  2. No, quit', '', '  Press enter to continue'],
+        typedRows: ['› 1. Yes, continue', '  2. No, quit', '', '  Press enter to continue'],
+        beforeCursor: '  Press enter to continue',
+        afterCursor: '',
+        cursorHidden: true
       })
     ).toBeNull()
   })
 
-  it('keeps a draft whose first line is numbered when no option list follows', () => {
+  it('keeps a numbered-list draft while the composer caret is visible', () => {
     expect(
       detectPendingComposerInput('claude', {
-        rows: [CLAUDE_RULE, '❯ 1. First step'],
-        typedRows: [CLAUDE_RULE, '❯ 1. First step'],
-        rowsBelow: [CLAUDE_RULE, '  ⏵⏵ auto mode on'],
-        beforeCursor: '❯ 1. First step',
-        afterCursor: ''
+        rows: [CLAUDE_RULE, '❯ 1. First step', '  2. Second step'],
+        typedRows: [CLAUDE_RULE, '❯ 1. First step', '  2. Second step'],
+        beforeCursor: '  2. Second step',
+        afterCursor: '',
+        cursorHidden: false
       })
-    ).toBe('1. First step')
+    ).toBe('1. First step\n2. Second step')
   })
 
   it('drops dim placeholder text from a glyph row reached from a continuation row', () => {

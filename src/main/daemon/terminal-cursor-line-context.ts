@@ -1,26 +1,26 @@
-import type { IBuffer, IBufferLine } from '@xterm/headless'
-import {
-  COMPOSER_CURSOR_CONTEXT_ROWS_BELOW,
-  type TerminalCursorContext
-} from '../../shared/agent-composer-pending-input'
+import type { IBufferLine, Terminal } from '@xterm/headless'
+import type { TerminalCursorContext } from '../../shared/agent-composer-pending-input'
 
-// Why: agent composers draw their placeholder dim, so dropping dim cells leaves only typed text.
+// Why: agent composers draw their placeholder dim, so dropping dim cells leaves only typed
+// text. Ink paints gaps as empty cells rather than spaces, so an empty cell still reads as one.
 function undimmedText(line: IBufferLine, fromX = 0): string {
   let text = ''
   for (let x = fromX; x < line.length; x += 1) {
     const cell = line.getCell(x)
-    if (cell && !cell.isDim()) {
-      text += cell.getChars()
+    if (!cell || cell.isDim() || cell.getWidth() === 0) {
+      continue
     }
+    text += cell.getChars() || ' '
   }
   return text.trimEnd()
 }
 
 /** Rows ending at the cursor row plus the cursor row split at the cursor; null before any row exists. */
 export function readTerminalCursorLineContext(
-  buffer: IBuffer,
+  terminal: Terminal,
   rowsAbove: number
 ): TerminalCursorContext | null {
+  const buffer = terminal.buffer.active
   const cursorRow = buffer.baseY + buffer.cursorY
   const cursorLine = buffer.getLine(cursorRow)
   if (!cursorLine) {
@@ -34,16 +34,11 @@ export function readTerminalCursorLineContext(
     rows.push(line?.translateToString(true) ?? '')
     typedRows.push(line ? undimmedText(line) : '')
   }
-  const rowsBelow: string[] = []
-  const end = Math.min(buffer.length - 1, cursorRow + COMPOSER_CURSOR_CONTEXT_ROWS_BELOW)
-  for (let row = cursorRow + 1; row <= end; row += 1) {
-    rowsBelow.push(buffer.getLine(row)?.translateToString(true) ?? '')
-  }
   return {
     rows,
     typedRows,
-    rowsBelow,
     beforeCursor: cursorLine.translateToString(true, 0, buffer.cursorX),
-    afterCursor: undimmedText(cursorLine, buffer.cursorX)
+    afterCursor: undimmedText(cursorLine, buffer.cursorX),
+    cursorHidden: !terminal.modes.showCursor
   }
 }

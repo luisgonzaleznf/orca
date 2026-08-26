@@ -740,9 +740,9 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
     expect(emulator.getCursorLineContext(8)).toEqual({
       rows: ['history', '────────', '❯ draft text'],
       typedRows: ['history', '────────', '❯ draft text'],
-      rowsBelow: ['', ''],
       beforeCursor: '❯ draft text',
-      afterCursor: ''
+      afterCursor: '',
+      cursorHidden: false
     })
   })
 
@@ -753,30 +753,29 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
     expect(emulator.getCursorLineContext(2)).toEqual({
       rows: ['› Ask Codex to do anything'],
       typedRows: ['›'],
-      rowsBelow: ['', ''],
       beforeCursor: '› ',
-      afterCursor: ''
+      afterCursor: '',
+      cursorHidden: false
     })
 
     await emulator.write('\x1b[2K\x1b[1;1H❯ Refactor the login page\x1b[1;3H')
     expect(emulator.getCursorLineContext(2)).toEqual({
       rows: ['❯ Refactor the login page'],
       typedRows: ['❯ Refactor the login page'],
-      rowsBelow: ['', ''],
       beforeCursor: '❯ ',
-      afterCursor: 'Refactor the login page'
+      afterCursor: 'Refactor the login page',
+      cursorHidden: false
     })
   })
 
-  it('includes the rows under the cursor that reveal a dialog option list', async () => {
+  it('reports a hidden cursor', async () => {
     emulator = new HeadlessEmulator({ cols: 80, rows: 10 })
-    await emulator.write('❯ 1. Yes, I trust this folder\r\n  2. No, exit\x1b[1;3H')
+    await emulator.write('❯ 1. Yes\x1b[?25l')
 
-    expect(emulator.getCursorLineContext(2)).toMatchObject({
-      rows: ['❯ 1. Yes, I trust this folder'],
-      rowsBelow: ['  2. No, exit', ''],
-      beforeCursor: '❯ '
-    })
+    expect(emulator.getCursorLineContext(2)).toMatchObject({ cursorHidden: true })
+
+    await emulator.write('\x1b[?25h')
+    expect(emulator.getCursorLineContext(2)).toMatchObject({ cursorHidden: false })
   })
 
   it('bounds the rows above the cursor', async () => {
@@ -786,9 +785,9 @@ describe('HeadlessEmulator.getCursorLineContext', () => {
     expect(emulator.getCursorLineContext(1)).toEqual({
       rows: ['three', '❯ '],
       typedRows: ['three', '❯'],
-      rowsBelow: ['', ''],
       beforeCursor: '❯ ',
-      afterCursor: ''
+      afterCursor: '',
+      cursorHidden: false
     })
   })
 })
