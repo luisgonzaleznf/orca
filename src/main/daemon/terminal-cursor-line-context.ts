@@ -1,9 +1,7 @@
 import type { IBufferLine, Terminal } from '@xterm/headless'
-import type { TerminalCursorContext } from '../../shared/agent-composer-pending-input'
+import type { TerminalCursorContext } from '../../shared/terminal-composer-draft'
 
-// Why: agent composers draw their placeholder dim, so dropping dim cells leaves only typed
-// text. Ink paints gaps as empty cells rather than spaces, so an empty cell still reads as one.
-function undimmedText(line: IBufferLine, fromX = 0): string {
+function undimmedText(line: IBufferLine, fromX = 0, trimRight = true): string {
   let text = ''
   for (let x = fromX; x < line.length; x += 1) {
     const cell = line.getCell(x)
@@ -12,10 +10,31 @@ function undimmedText(line: IBufferLine, fromX = 0): string {
     }
     text += cell.getChars() || ' '
   }
-  return text.trimEnd()
+  return trimRight ? text.trimEnd() : text
 }
 
-/** Rows ending at the cursor row plus the cursor row split at the cursor; null before any row exists. */
+function firstVisibleCellIsBold(line: IBufferLine): boolean {
+  for (let x = 0; x < line.length; x += 1) {
+    const cell = line.getCell(x)
+    if (!cell || cell.getWidth() === 0 || !cell.getChars().trim()) {
+      continue
+    }
+    return Boolean(cell.isBold())
+  }
+  return false
+}
+
+function firstVisibleCellHasCustomForeground(line: IBufferLine): boolean {
+  for (let x = 0; x < line.length; x += 1) {
+    const cell = line.getCell(x)
+    if (!cell || cell.getWidth() === 0 || !cell.getChars().trim()) {
+      continue
+    }
+    return !cell.isFgDefault()
+  }
+  return false
+}
+
 export function readTerminalCursorLineContext(
   terminal: Terminal,
   rowsAbove: number
@@ -28,17 +47,53 @@ export function readTerminalCursorLineContext(
   }
   const rows: string[] = []
   const typedRows: string[] = []
-  const start = Math.max(buffer.baseY, cursorRow - Math.max(0, Math.floor(rowsAbove)))
+  const promptGlyphBoldRows: boolean[] = []
+  const rowsWrapped: boolean[] = []
+  const start = Math.max(buffer.viewportY, cursorRow - Math.max(0, Math.floor(rowsAbove)))
   for (let row = start; row <= cursorRow; row += 1) {
     const line = buffer.getLine(row)
-    rows.push(line?.translateToString(true) ?? '')
-    typedRows.push(line ? undimmedText(line) : '')
+    const nextLineIsWrapped = buffer.getLine(row + 1)?.isWrapped ?? false
+    rows.push(line?.translateToString(!nextLineIsWrapped) ?? '')
+    typedRows.push(line ? undimmedText(line, 0, !nextLineIsWrapped) : '')
+    promptGlyphBoldRows.push(line ? firstVisibleCellIsBold(line) : false)
+    rowsWrapped.push(line?.isWrapped ?? false)
+  }
+  const rowsBelow: string[] = []
+  const typedRowsBelow: string[] = []
+  const rowsBelowWrapped: boolean[] = []
+  const rowsBelowCustomForeground: boolean[] = []
+  const end = Math.min(
+    buffer.viewportY + terminal.rows - 1,
+    cursorRow + Math.max(0, Math.floor(rowsAbove))
+  )
+  for (let row = cursorRow + 1; row <= end; row += 1) {
+    const line = buffer.getLine(row)
+    const nextLineIsWrapped = buffer.getLine(row + 1)?.isWrapped ?? false
+    rowsBelow.push(line?.translateToString(!nextLineIsWrapped) ?? '')
+    typedRowsBelow.push(line ? undimmedText(line, 0, !nextLineIsWrapped) : '')
+    rowsBelowWrapped.push(line?.isWrapped ?? false)
+    rowsBelowCustomForeground.push(line ? firstVisibleCellHasCustomForeground(line) : false)
   }
   return {
     rows,
     typedRows,
+    promptGlyphBoldRows,
+    rowsWrapped,
+    rowsBelow,
+    typedRowsBelow,
+    rowsBelowWrapped,
+    rowsBelowCustomForeground,
     beforeCursor: cursorLine.translateToString(true, 0, buffer.cursorX),
-    afterCursor: undimmedText(cursorLine, buffer.cursorX),
-    cursorHidden: !terminal.modes.showCursor
+    afterCursor: undimmedText(
+      cursorLine,
+      buffer.cursorX,
+      !(buffer.getLine(cursorRow + 1)?.isWrapped ?? false)
+    ),
+    rawAfterCursor: cursorLine.translateToString(
+      !(buffer.getLine(cursorRow + 1)?.isWrapped ?? false),
+      buffer.cursorX
+    ),
+    cursorHidden: !terminal.modes.showCursor,
+    cursorViewportRow: cursorRow - buffer.viewportY
   }
 }

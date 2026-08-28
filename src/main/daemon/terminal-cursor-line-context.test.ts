@@ -1,47 +1,71 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { Terminal } from '@xterm/headless'
+import { describe, expect, it } from 'vitest'
+import { detectTerminalComposerDraft } from '../../shared/terminal-composer-draft'
 import { HeadlessEmulator } from './headless-emulator'
-import {
-  COMPOSER_CURSOR_CONTEXT_ROWS,
-  detectPendingComposerInput,
-  type ComposerPendingInputAgent
-} from '../../shared/agent-composer-pending-input'
+import { readTerminalCursorLineContext } from './terminal-cursor-line-context'
 
-// Captured verbatim from Claude Code 2.1.246 and Codex 0.149.1 in a 100x30 PTY.
-function fixture(name: string): string {
-  return readFileSync(join(__dirname, '__fixtures__', `${name}.txt`), 'utf8')
+function writeSync(terminal: Terminal, data: string): void {
+  const core = (terminal as unknown as { _core: { writeSync(data: string): void } })._core
+  core.writeSync(data)
 }
 
-describe('readTerminalCursorLineContext against real agent screens', () => {
-  let emulator: HeadlessEmulator
+describe('readTerminalCursorLineContext', () => {
+  it.each([
+    { cols: 19, cursorRowTail: 'proceed with the ', continuation: 'release' },
+    { cols: 18, cursorRowTail: 'proceed with the', continuation: ' release' }
+  ])(
+    'preserves a space at a dimmed soft-wrap boundary with $cols columns',
+    ({ cols, cursorRowTail, continuation }) => {
+      const terminal = new Terminal({ cols, rows: 6, allowProposedApi: true })
+      writeSync(
+        terminal,
+        `${'─'.repeat(cols)}\r\n❯ \x1b7\x1b[2mproceed with the release\x1b[22m\x1b8`
+      )
 
-  afterEach(() => {
-    emulator?.dispose()
+      const context = readTerminalCursorLineContext(terminal, 16)
+
+      expect(context?.rawAfterCursor).toBe(cursorRowTail)
+      expect(context?.rowsBelow).toEqual([continuation, '', '', ''])
+      expect(context?.rowsBelowWrapped).toEqual([true, false, false, false])
+      expect(detectTerminalComposerDraft(context)?.text).toBe('proceed with the release')
+      terminal.dispose()
+    }
+  )
+
+  it('preserves a typed space before the cursor moves onto a wrapped row', () => {
+    const terminal = new Terminal({ cols: 19, rows: 6, allowProposedApi: true })
+    writeSync(terminal, '───────────────────\r\n❯ proceed with the release')
+
+    const context = readTerminalCursorLineContext(terminal, 16)
+
+    expect(context?.typedRows).toEqual(['───────────────────', '❯ proceed with the ', 'release'])
+    expect(context?.rowsWrapped).toEqual([false, false, true])
+    expect(detectTerminalComposerDraft(context)?.text).toBe('proceed with the release')
+    terminal.dispose()
   })
 
-  async function detect(agent: ComposerPendingInputAgent, name: string): Promise<string | null> {
-    emulator = new HeadlessEmulator({ cols: 100, rows: 30 })
-    await emulator.write(fixture(name))
-    return detectPendingComposerInput(
-      agent,
-      emulator.getCursorLineContext(COMPOSER_CURSOR_CONTEXT_ROWS)
+  it('recognizes a colored context-only Codex status footer', () => {
+    const terminal = new Terminal({ cols: 80, rows: 8, allowProposedApi: true })
+    writeSync(
+      terminal,
+      '\x1b[1m›\x1b[22m \x1b7review the change\r\n \r\n\x1b[38;2;242;181;144mContext 0% used\x1b[0m\x1b8'
     )
-  }
 
-  it.each([
-    ['claude', 'claude-composer-draft'],
-    ['codex', 'codex-composer-draft']
-  ] as const)('reads the unsent %s draft', async (agent, name) => {
-    await expect(detect(agent, name)).resolves.toBe('Refactor the login page so that it')
-    expect(emulator.getCursorLineContext(1)).toMatchObject({ cursorHidden: false })
+    const context = readTerminalCursorLineContext(terminal, 16)
+
+    expect(detectTerminalComposerDraft(context)?.text).toBe('review the change')
+    terminal.dispose()
   })
 
-  it.each([
-    ['claude', 'claude-permission-dialog'],
-    ['codex', 'codex-trust-dialog']
-  ] as const)('does not read a %s dialog option list as a draft', async (agent, name) => {
-    await expect(detect(agent, name)).resolves.toBeNull()
-    expect(emulator.getCursorLineContext(1)).toMatchObject({ cursorHidden: true })
+  it('finds a composer prompt more than 16 wrapped rows above the cursor', async () => {
+    const draft = `proceed ${'with '.repeat(65)}release`
+    const emulator = new HeadlessEmulator({ cols: 19, rows: 30 })
+    await emulator.write(`${'─'.repeat(19)}\r\n❯ ${draft}`)
+
+    const context = emulator.getCursorLineContext()
+
+    expect(context?.rows.length).toBeGreaterThan(17)
+    expect(detectTerminalComposerDraft(context)?.text).toBe(draft)
+    emulator.dispose()
   })
 })

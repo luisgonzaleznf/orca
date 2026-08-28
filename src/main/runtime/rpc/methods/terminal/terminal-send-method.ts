@@ -1,7 +1,7 @@
 import { InvalidArgumentError, defineMethod, type RpcAnyMethod } from '../../core'
 import { isTerminalQueryReply } from '../../../../../shared/terminal-query-reply'
 import { assertTerminalAgentSendable } from '../../terminal-agent-send-guard'
-import { AgentPromptPendingInputError } from '../../../../../shared/agent-composer-pending-input'
+import { AgentPromptPendingInputError } from '../../../../../shared/agent-prompt-pending-input-error'
 import { TerminalSend } from './unary-schemas'
 import {
   assertTerminalSendExactPtyBinding,

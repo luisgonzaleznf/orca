@@ -23,7 +23,7 @@ import {
 import { installDeviceAttributesResponder } from './startup-device-attributes-responder'
 import type { TerminalSnapshot, TerminalModes } from './types'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
-import type { TerminalCursorContext } from '../../shared/agent-composer-pending-input'
+import type { TerminalCursorContext } from '../../shared/terminal-composer-draft'
 import { readTerminalCursorLineContext } from './terminal-cursor-line-context'
 
 export type HeadlessEmulatorOptions = {
@@ -295,10 +295,6 @@ export class HeadlessEmulator {
     return fullLine === upToCursor && upToCursor.endsWith('>') && !upToCursor.endsWith('>>')
   }
 
-  getCursorLineContext(rowsAbove: number): TerminalCursorContext | null {
-    return readTerminalCursorLineContext(this.terminal, rowsAbove)
-  }
-
   getVisibleLines(): string[] {
     const buffer = this.terminal.buffer.active
     const lines: string[] = []
@@ -306,6 +302,20 @@ export class HeadlessEmulator {
       lines.push(buffer.getLine(row)?.translateToString(true) ?? '')
     }
     return lines
+  }
+
+  getVisibleBufferRange(): { start: number; endExclusive: number; totalLength: number } {
+    const buffer = this.terminal.buffer.active
+    const start = buffer.viewportY
+    return {
+      start,
+      endExclusive: Math.min(buffer.length, start + this.terminal.rows),
+      totalLength: buffer.length
+    }
+  }
+
+  getCursorLineContext(rowsAbove = this.terminal.rows): TerminalCursorContext | null {
+    return readTerminalCursorLineContext(this.terminal, rowsAbove)
   }
 
   getBufferTailLines(limit: number): string[] {
