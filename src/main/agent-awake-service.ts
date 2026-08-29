@@ -102,6 +102,7 @@ export class AgentAwakeService {
     this.refresh('settings-change')
   }
 
+  /** Opts the display in or out of the awake assertion; does not change whether one is held. */
   setKeepScreenOn(keepScreenOn: boolean): void {
     if (this.keepScreenOn === keepScreenOn) {
       return

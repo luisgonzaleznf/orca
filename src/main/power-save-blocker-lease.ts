@@ -27,6 +27,11 @@ export class PowerSaveBlockerLease {
     private readonly logger: Logger
   ) {}
 
+  /**
+   * Holds a blocker at `type`, swapping scope if one is already live. If the old blocker
+   * survives its stop it is kept and the swap is deferred to the next call, because
+   * starting a second blocker would leave the first running with nothing tracking its id.
+   */
   acquire(type: PowerSaveBlockerType, context: BlockerLogContext): void {
     if (this.id !== null && this.reconcile('start-reconcile')) {
       if (this.type === type) {
@@ -57,6 +62,7 @@ export class PowerSaveBlockerLease {
     }
   }
 
+  /** Releases the held blocker; the id is retained if the OS still reports it started. */
   release(context: BlockerLogContext): void {
     if (this.id === null) {
       return
