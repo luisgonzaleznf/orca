@@ -1,0 +1,89 @@
+export type PowerSaveBlockerType = 'prevent-app-suspension' | 'prevent-display-sleep'
+
+export type PowerSaveBlocker = {
+  start: (type: PowerSaveBlockerType) => number
+  stop: (id: number) => void
+  isStarted: (id: number) => boolean
+}
+
+type Logger = Pick<Console, 'debug' | 'warn'>
+
+type BlockerLogContext = {
+  reason: string
+  mode: string
+  runningStatusCount: number
+}
+
+/**
+ * Holds at most one Electron power-save blocker and re-scopes it in place when the
+ * requested type changes, so callers never leak a blocker across a scope switch.
+ */
+export class PowerSaveBlockerLease {
+  private id: number | null = null
+  private type: PowerSaveBlockerType | null = null
+
+  constructor(
+    private readonly blocker: PowerSaveBlocker,
+    private readonly logger: Logger
+  ) {}
+
+  acquire(type: PowerSaveBlockerType, context: BlockerLogContext): void {
+    if (this.id !== null && this.reconcile('start-reconcile')) {
+      if (this.type === type) {
+        return
+      }
+      // Why: reconcile before stopping so we never hand the OS an id it already dropped.
+      this.release({ ...context, reason: 'blocker-type-change' })
+    }
+    try {
+      this.id = this.blocker.start(type)
+      this.type = type
+      this.reconcile('post-start')
+    } catch (error) {
+      this.logger.warn('[agent-awake] failed to start blocker', {
+        ...context,
+        error
+      })
+    }
+  }
+
+  release(context: BlockerLogContext): void {
+    if (this.id === null) {
+      return
+    }
+    const id = this.id
+    try {
+      this.blocker.stop(id)
+    } catch (error) {
+      this.logger.warn('[agent-awake] failed to stop blocker', {
+        ...context,
+        blockerId: id,
+        error
+      })
+    }
+    this.reconcile('post-stop')
+  }
+
+  /** True while the OS still reports the blocker as started. */
+  private reconcile(reason: string): boolean {
+    if (this.id === null) {
+      return false
+    }
+    const id = this.id
+    try {
+      const isStarted = this.blocker.isStarted(id)
+      if (!isStarted) {
+        this.id = null
+        this.type = null
+      }
+      return isStarted
+    } catch (error) {
+      this.logger.warn('[agent-awake] failed to reconcile blocker', {
+        reason,
+        blockerId: id,
+        error
+      })
+      return true
+    }
+  }
+}

@@ -6,6 +6,11 @@ import {
   type ComputerAwakeStatus
 } from '../shared/computer-awake-mode'
 import { LinuxLidSleepAssertion } from './linux-lid-sleep-assertion'
+import {
+  PowerSaveBlockerLease,
+  type PowerSaveBlocker,
+  type PowerSaveBlockerType
+} from './power-save-blocker-lease'
 import { MacosSystemSleepAssertion } from './macos-system-sleep-assertion'
 
 export const AGENT_AWAKE_STATUS_STALE_AFTER_MS = 2 * 60 * 60 * 1000
@@ -14,12 +19,6 @@ export type AgentAwakeStatus = {
   state: AgentStatusState
   receivedAt: number
   observedInCurrentRuntime: boolean
-}
-
-type PowerSaveBlocker = {
-  start: (type: 'prevent-app-suspension' | 'prevent-display-sleep') => number
-  stop: (id: number) => void
-  isStarted: (id: number) => boolean
 }
 
 type PlatformAwakeAssertion = {
@@ -47,7 +46,8 @@ type AgentAwakeServiceOptions = {
 export class AgentAwakeService {
   private mode: ComputerAwakeMode = 'off'
   private statuses: AgentAwakeStatus[] = []
-  private blockerId: number | null = null
+  private readonly blockerLease: PowerSaveBlockerLease
+  private keepScreenOn = false
   private staleTimer: ReturnType<typeof setTimeout> | null = null
   private readonly statusListeners = new Set<(status: ComputerAwakeStatus) => void>()
   private lastPublishedStatus: ComputerAwakeStatus | null = null
@@ -61,6 +61,7 @@ export class AgentAwakeService {
   constructor(options: AgentAwakeServiceOptions = {}) {
     this.blocker = options.blocker ?? powerSaveBlocker
     this.logger = options.logger ?? console
+    this.blockerLease = new PowerSaveBlockerLease(this.blocker, this.logger)
     this.now = options.now ?? Date.now
     // Windows lid close is intentionally not modeled as an assertion here:
     // keeping it awake requires mutating the user's global power plan.
@@ -98,6 +99,14 @@ export class AgentAwakeService {
       return
     }
     this.mode = normalized
+    this.refresh('settings-change')
+  }
+
+  setKeepScreenOn(keepScreenOn: boolean): void {
+    if (this.keepScreenOn === keepScreenOn) {
+      return
+    }
+    this.keepScreenOn = keepScreenOn
     this.refresh('settings-change')
   }
 
@@ -210,23 +219,11 @@ export class AgentAwakeService {
   }
 
   private startBlocker(reason: string, runningStatusCount: number): void {
-    if (this.blockerId !== null) {
-      if (this.reconcileBlocker('start-reconcile')) {
-        return
-      }
-    }
-    try {
-      const id = this.blocker.start('prevent-display-sleep')
-      this.blockerId = id
-      this.reconcileBlocker('post-start')
-    } catch (err) {
-      this.logger.warn('[agent-awake] failed to start blocker', {
-        reason,
-        mode: this.mode,
-        runningStatusCount,
-        error: err
-      })
-    }
+    // Why: plain terminal `caffeinate` (-i) holds the system only; pinning the display is opt-in.
+    const type: PowerSaveBlockerType = this.keepScreenOn
+      ? 'prevent-display-sleep'
+      : 'prevent-app-suspension'
+    this.blockerLease.acquire(type, { reason, mode: this.mode, runningStatusCount })
   }
 
   private startMacosAssertion(reason: string): void {
@@ -278,42 +275,6 @@ export class AgentAwakeService {
   }
 
   private stopBlocker(reason: string, runningStatusCount = 0): void {
-    if (this.blockerId === null) {
-      return
-    }
-    const id = this.blockerId
-    try {
-      this.blocker.stop(id)
-    } catch (err) {
-      this.logger.warn('[agent-awake] failed to stop blocker', {
-        reason,
-        mode: this.mode,
-        runningStatusCount,
-        blockerId: id,
-        error: err
-      })
-    }
-    this.reconcileBlocker('post-stop')
-  }
-
-  private reconcileBlocker(reason: string): boolean {
-    if (this.blockerId === null) {
-      return false
-    }
-    const id = this.blockerId
-    try {
-      const isStarted = this.blocker.isStarted(id)
-      if (!isStarted) {
-        this.blockerId = null
-      }
-      return isStarted
-    } catch (err) {
-      this.logger.warn('[agent-awake] failed to reconcile blocker', {
-        reason,
-        blockerId: id,
-        error: err
-      })
-      return true
-    }
+    this.blockerLease.release({ reason, mode: this.mode, runningStatusCount })
   }
 }
