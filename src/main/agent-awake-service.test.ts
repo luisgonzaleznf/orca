@@ -165,6 +165,21 @@ describe('AgentAwakeService', () => {
     expect(linuxAssertion.stop).not.toHaveBeenCalled()
   })
 
+  it('keeps the live blocker instead of stranding it when a scope change fails to release', () => {
+    const blocker = createBlocker()
+    const service = createService(() => 1_000, blocker)
+
+    service.setMode('on')
+    blocker.stop.mockImplementation(() => {
+      throw new Error('stop failed')
+    })
+    service.setKeepScreenOn(true)
+
+    // Why: a second blocker here would leave the first one running with nothing tracking its id.
+    expect(blocker.start).toHaveBeenCalledTimes(1)
+    expect(blocker.startedIds.size).toBe(1)
+  })
+
   it('leaves a live blocker alone when the screen opt-in is set to its current value', () => {
     const blocker = createBlocker()
     const service = createService(() => 1_000, blocker)

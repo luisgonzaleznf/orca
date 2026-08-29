@@ -34,6 +34,16 @@ export class PowerSaveBlockerLease {
       }
       // Why: reconcile before stopping so we never hand the OS an id it already dropped.
       this.release({ ...context, reason: 'blocker-type-change' })
+      if (this.id !== null) {
+        // Why: the old blocker outlived its stop; starting a second one would strand it forever.
+        this.logger.warn('[agent-awake] kept the live blocker after a failed scope change', {
+          ...context,
+          blockerId: this.id,
+          blockerType: this.type,
+          requestedType: type
+        })
+        return
+      }
     }
     try {
       this.id = this.blocker.start(type)
