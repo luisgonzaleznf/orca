@@ -27,6 +27,7 @@ const { runtimeCall, resetRemoteRuntimeTransport } = createRemoteRuntimeTranspor
 describe('recoverable attach failures on a remote runtime pane', () => {
   let resolvePaneCalls = 0
 
+  /** Rejects every RPC the way a paired runtime behind a dropped tunnel does. */
   function installUnreachableRuntime(): void {
     resolvePaneCalls = 0
     runtimeCall.mockImplementation(async (args: { method: string }) => {

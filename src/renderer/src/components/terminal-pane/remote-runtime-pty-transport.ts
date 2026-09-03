@@ -864,7 +864,11 @@ export function createRemoteRuntimePtyTransport(
     return { handle: undefined, inventoryFailed: false }
   }
 
-  // Why: the reconnect button and a parked external trigger revive a pane the same way — replay whichever entry point opened it.
+  /**
+   * Re-opens the pane through whichever entry point last opened it — attach for a restored pane,
+   * connect for one this client created. The Reconnect button and a parked external trigger both
+   * revive a pane this way.
+   */
   function replayLastTransportEntryPoint(): boolean {
     if (destroyed || terminalEnded || connected) {
       return false
@@ -1638,6 +1642,10 @@ export function createRemoteRuntimePtyTransport(
     )
   }
 
+  /**
+   * Classifies a terminal error and routes it: retirement for lifecycle evidence, recovery for
+   * unverifiable contact loss, and the red error surface only for actionable fatal errors.
+   */
   function handleRemoteTerminalError(error: unknown): void {
     const message = runtimeTerminalErrorMessage(error)
     if (message === REMOTE_TERMINAL_SNAPSHOT_TOO_LARGE) {
@@ -2387,6 +2395,7 @@ export function createRemoteRuntimePtyTransport(
       }
     },
 
+    /** Binds this pane to a pty that already exists on the host, as a restored session does. */
     attach(options) {
       const attachLifecycleEpoch = ++lifecycleEpoch
       const generation = ++attachGeneration

@@ -5,9 +5,13 @@ import type { AppState } from '../store'
 
 type RuntimeStatusEntries = AppState['runtimeStatusByEnvironmentId']
 
-// Why: a paired runtime returning is invisible to the `online` and system-resume triggers — a tailnet
-// or VPN coming back changes neither `navigator.onLine` (the LAN never dropped) nor power state. A
-// pane parked at 'disconnected' would then wait for a manual Reconnect forever.
+/**
+ * True when any environment gained a status or advanced its connection generation.
+ *
+ * Why this trigger exists at all: a paired runtime returning is invisible to `online` and
+ * system-resume — a tailnet or VPN coming back changes neither `navigator.onLine` (the LAN never
+ * dropped) nor power state, so a parked pane would wait for a manual Reconnect forever.
+ */
 function hasEnvironmentBecomeReachable(
   next: RuntimeStatusEntries,
   previous: RuntimeStatusEntries
@@ -30,8 +34,10 @@ function hasEnvironmentBecomeReachable(
   return false
 }
 
+/** Advances parked remote-runtime backoffs when the network, the machine, or an environment returns. */
 export function useRemoteRuntimeRecoveryTriggers(): void {
   useEffect(() => {
+    /** Nudges both backoff owners at once. */
     const advanceRemoteRuntimeRecoveryBackoffs = (): void => {
       // Why: shared control and pane recovery own independent backoff timers.
       void window.api?.runtimeEnvironments?.retryConnectionsNow?.().catch(() => undefined)
