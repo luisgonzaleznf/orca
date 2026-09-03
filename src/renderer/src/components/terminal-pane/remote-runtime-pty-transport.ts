@@ -285,6 +285,10 @@ export function createRemoteRuntimePtyTransport(
   let terminalCreateUnknownOutcomeError: unknown = null
   let lastConnectOptions: Parameters<PtyTransport['connect']>[0] | null = null
   let lastAttachOptions: Parameters<PtyTransport['attach']>[0] | null = null
+  // Why: attach() resets recovery because a mount-initiated attach is a fresh start, but a recovery
+  // replay is the same attempt continuing. Without this the ladder restarts every replay, so the
+  // deadline never latches and the pane never reaches the 'disconnected' phase that shows Reconnect.
+  let replayingRecoveryAttach = false
   let resolvePaneUnavailable = false
   let recoveringPaneHandle: string | null = null
   const getRecoveryReplacementPolicy = (targetHandle: string): HostHandleReplacementPolicy =>
@@ -866,7 +870,12 @@ export function createRemoteRuntimePtyTransport(
       return false
     }
     if (lastAttachOptions) {
-      transport.attach(lastAttachOptions)
+      replayingRecoveryAttach = true
+      try {
+        transport.attach(lastAttachOptions)
+      } finally {
+        replayingRecoveryAttach = false
+      }
       return true
     }
     if (lastConnectOptions) {
@@ -1664,6 +1673,14 @@ export function createRemoteRuntimePtyTransport(
     }
     if (isRecoverableRemoteRuntimeConnectionError(clientError)) {
       // Why: a partition is attachment state, not a terminal failure; keep the red error surface for actionable fatal errors.
+      if (!connected || !handle) {
+        // Why: an attach that never opened a stream has nothing to resubscribe, so that call would
+        // no-op and strand the pane blank with `connecting` latched and no retry armed (#12684 covers
+        // the connect() side of the same failure). Replay the entry point the way connect() does.
+        connecting = false
+        scheduleConnectRetryAfterRecoverableFailure()
+        return
+      }
       scheduleResubscribeAfterTransportClose()
       return
     }
@@ -2374,7 +2391,9 @@ export function createRemoteRuntimePtyTransport(
       const attachLifecycleEpoch = ++lifecycleEpoch
       const generation = ++attachGeneration
       cancelTerminalCreateRetryWait()
-      recovery.cancel()
+      if (!replayingRecoveryAttach) {
+        recovery.cancel()
+      }
       resetRecoveryReplacementPolicy()
       resetSameHandleEndReuse()
       clearPublishedHandleWait()
@@ -2464,7 +2483,12 @@ export function createRemoteRuntimePtyTransport(
           return
         }
         clearPendingViewportClaim()
-        recovery.cancel()
+        // Why: cancelling before a recoverable failure begins a fresh epoch on every replay, so the
+        // ladder restarts and the auto-recovery deadline never latches. connect() cancels only on the
+        // gone and fatal paths for the same reason; handleRemoteTerminalError owns the rest.
+        if (!isRecoverableRemoteRuntimeConnectionError(toRemoteRuntimeClientErrorLike(error))) {
+          recovery.cancel()
+        }
         handleRemoteTerminalError(error)
       })
     },
