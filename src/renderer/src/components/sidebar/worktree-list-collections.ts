@@ -21,8 +21,8 @@ export function getCollectionRepoHeaderKey(collectionId: string, repoId: string)
 
 /** Collection rows are visual duplicates of project-list rows; reorder and
  *  preference machinery must skip them. */
-export function isCollectionSectionKey(sectionKey: string): boolean {
-  return sectionKey.startsWith('collection:')
+export function isCollectionSectionKey(sectionKey: string | undefined): boolean {
+  return sectionKey?.startsWith('collection:') === true
 }
 
 /** Pinned stays the topmost sidebar section; collection sections slot between

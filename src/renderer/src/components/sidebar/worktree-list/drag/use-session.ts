@@ -25,6 +25,7 @@ import {
 } from '../../worktree-sidebar-drop-preview'
 import { getWorktreeDragGroups, getWorktreeDragIndexes } from './groups'
 import type { WorktreeItemRow } from '../listing/renderable-rows'
+import { getNaturalWorktreeIds } from '../../natural-worktree-ids'
 
 export type WorktreeStatusDropRequest = {
   pointerY: number
@@ -49,19 +50,7 @@ export function useWorktreeDragSession(args: {
 
   const worktreeDragGroups = useMemo(() => getWorktreeDragGroups(rows), [rows])
   const worktreeDragUnitGroups = useMemo(() => getWorktreeDragUnitGroups(rows), [rows])
-  const naturalDragWorktreeIds = useMemo(
-    () =>
-      new Set(
-        rows.flatMap((row) =>
-          row.type === 'item' &&
-          row.sectionKey !== PINNED_GROUP_KEY &&
-          !isCollectionSectionKey(row.sectionKey)
-            ? [row.worktree.id]
-            : []
-        )
-      ),
-    [rows]
-  )
+  const naturalDragWorktreeIds = useMemo(() => getNaturalWorktreeIds(rows), [rows])
   const worktreeLineageDragRows = useMemo(
     () =>
       rows

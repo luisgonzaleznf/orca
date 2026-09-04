@@ -7,6 +7,7 @@ import type { PersistedState } from '../shared/persisted-state-types'
 import { mergeWorktree } from './ipc/worktree-metadata-merge'
 import {
   createStore,
+  makeRepo,
   readDataFile as readDataFileUntyped,
   testState,
   writeDataFile
@@ -19,6 +20,16 @@ function readDataFile(): PersistedState {
 describe('Store collections', () => {
   beforeEach(() => {
     testState.dir = mkdtempSync(join(tmpdir(), 'orca-collections-test-'))
+    // Why: load sweeps worktree rows owned by a deregistered repo (#17776), so
+    // membership only survives a reload when its repo is actually registered.
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [makeRepo({ id: 'repo-api', path: '/repo-api' })],
+      worktreeMeta: {},
+      settings: {},
+      ui: {},
+      githubCache: { pr: {}, issue: {} }
+    })
   })
 
   afterEach(() => {

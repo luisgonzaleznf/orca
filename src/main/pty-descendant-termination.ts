@@ -120,9 +120,9 @@ export function createProcessTableSnapshotReader(
   }
 }
 
-const readProcessTable = createProcessTableSnapshotReader(readFreshProcessTable)
+export const readProcessTable = createProcessTableSnapshotReader(readFreshProcessTable)
 
-function readProcessTableBeforeDeadline(
+export function readProcessTableBeforeDeadline(
   readTable: ProcessTableReader,
   timeoutMs: number
 ): Promise<ProcessTableCapture | null> {
@@ -275,7 +275,9 @@ export async function killWithDescendantSweep(
         const target = await verify(rootPid).catch((): WindowsTreeKillTarget => 'unknown')
         // Re-check ownership: the identity query awaits, so exit can land meanwhile.
         if (target === 'own' && (deps.ownsRoot?.() ?? true)) {
-          const killTree = deps.killWindowsTree ?? terminateWindowsProcessTree
+          const killTree =
+            deps.killWindowsTree ??
+            ((pid: number) => terminateWindowsProcessTree(pid, { site: 'pty-descendant-sweep' }))
           // Why: taskkill may race an already-exited tree; never block killRoot on that.
           await killTree(rootPid).catch(() => {})
         }
@@ -298,7 +300,7 @@ export async function killWithDescendantSweep(
   }
 }
 
-function defaultSendSignal(pid: number, signal: NodeJS.Signals): void {
+export function sendDescendantSignal(pid: number, signal: NodeJS.Signals): void {
   try {
     process.kill(pid, signal)
   } catch {
@@ -306,14 +308,14 @@ function defaultSendSignal(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
-type TerminateDeps = {
+export type TerminateDeps = {
   readTable?: ProcessTableReader
   sendSignal?: SignalSender
   graceMs?: number
   timeoutMs?: number
 }
 
-function hasUnambiguousStartIdentity(row: ProcessTableRow, capturedAtMs: number): boolean {
+export function hasUnambiguousStartIdentity(row: ProcessTableRow, capturedAtMs: number): boolean {
   const startedAtMs = Date.parse(row.startedAt)
   if (!Number.isFinite(startedAtMs)) {
     return false
@@ -333,7 +335,7 @@ export function terminateDescendantSnapshot(
   snapshot: DescendantSnapshot,
   deps: TerminateDeps = {}
 ): void {
-  const sendSignal = deps.sendSignal ?? defaultSendSignal
+  const sendSignal = deps.sendSignal ?? sendDescendantSignal
   const readTable = deps.readTable ?? readProcessTable
   for (const row of snapshot.descendants) {
     sendSignal(row.pid, 'SIGTERM')

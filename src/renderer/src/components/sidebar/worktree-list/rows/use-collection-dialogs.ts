@@ -4,6 +4,7 @@ import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import type { Collection } from '../../../../../../shared/collection-types'
 import type { Worktree } from '../../../../../../shared/worktree/types'
+import type { WorktreeMetaBatchUpdate } from '@/store/slices/worktree-helpers'
 import { assignCollectionMembership } from '../../../../../../shared/collections'
 
 export type CollectionDialogs = ReturnType<typeof useCollectionDialogs>
@@ -29,19 +30,22 @@ export function useCollectionDialogs(args: { worktreeMap: Map<string, Worktree> 
 
   const handleDropWorktreesOnCollection = useCallback(
     (worktreeIds: readonly string[], collectionId: string) => {
-      const updates = new Map<string, { collectionIds: string[] }>()
+      const updates: WorktreeMetaBatchUpdate[] = []
       for (const worktreeId of worktreeIds) {
         const worktree = worktreeMap.get(worktreeId)
         if (!worktree || worktree.collectionIds?.includes(collectionId)) {
           continue
         }
-        updates.set(worktreeId, {
-          collectionIds: assignCollectionMembership(worktree.collectionIds, collectionId, {
-            exclusive: !worktree.isMainWorktree
-          })
+        updates.push({
+          worktreeId,
+          updates: {
+            collectionIds: assignCollectionMembership(worktree.collectionIds, collectionId, {
+              exclusive: !worktree.isMainWorktree
+            })
+          }
         })
       }
-      if (updates.size > 0) {
+      if (updates.length > 0) {
         void updateWorktreesMeta(updates)
       }
     },
