@@ -357,6 +357,21 @@ the command:
 This disables a security boundary. Prefer a dedicated unprivileged service
 user, especially when the listener is reachable beyond localhost.
 
+The Linux CLI is named `orca-ide`, not `orca`, so it never shadows the GNOME
+Orca screen reader at `/usr/bin/orca`. The `.deb` and `.rpm` packages put
+`orca-ide` on `PATH` themselves at install time; with the AppImage it arrives
+as `~/.local/bin/orca-ide` when the CLI is registered.
+
+A packaged `orca serve` start also writes a bare `orca` into `~/.local/bin`
+that execs the same launcher, which is why the skills commands below can be
+typed as `orca`. It writes it while starting, so it is never the command that
+starts the server — the first launch is `orca-ide serve`, or the AppImage
+invoked directly as above. The write is best-effort: it is gated on a packaged
+build, it is skipped when no bundled launcher resolves, and it is skipped when
+a file Orca does not own already holds that name (ownership is a marker on the
+second line of the file). A host that really does run the screen reader keeps
+its own `orca`.
+
 ## Pairing troubleshooting
 
 - A pairing offer is a capability containing a device credential and E2EE
@@ -375,6 +390,10 @@ user, especially when the listener is reachable beyond localhost.
   `ws://` through an HTTPS-only endpoint.
 - Hostnames, IPv4, bracketed IPv6, and raw IPv6 literals are supported. IPv6
   still requires an IPv6-reachable listener/network path.
+- Background push notifications to a paired phone do not fire from a headless
+  server: agent-completion detection runs in the desktop renderer, which is not started in serve
+  mode, so nothing reaches the push gateway even though the phone
+  registers successfully.
 - `xvfb-run` and `dbus-run-session -- xvfb-run` remain valid diagnostic launch
   shapes, but neither should be needed when `Xvfb` is installed and no display
   is configured. Repeated D-Bus messages without a ready block indicate startup
