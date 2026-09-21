@@ -4,6 +4,7 @@ import { RpcDispatcher } from './dispatcher'
 import type { RpcRequest } from './core'
 import { TERMINAL_METHODS } from './methods/terminal'
 import { AGENT_PROMPT_BRACKETED_PASTE_START } from '../../../shared/agent-prompt-injection'
+import { AgentPromptPendingInputError } from '../../../shared/agent-prompt-pending-input-error'
 
 const CLAUDE_RULE = '─'.repeat(60)
 
@@ -177,6 +178,28 @@ describe('terminal.send into a composer with unsent input', () => {
       write,
       'review this change'
     )
+  })
+
+  // Why: the write path re-validates request activity, generation, permission and PTY admission
+  // across `beforeWrite`; composer state is an invariant of the same standing, so a draft the
+  // user starts during that hook must refuse rather than be pasted onto. Regression for #16290.
+  it('refuses a draft that appears while beforeWrite is pending', async () => {
+    const { runtime, write, handle } = await makeClaudeRuntime('❯ ')
+    // Why: terminal.send resolves the pane's agent before writing. This test drives the write
+    // path directly so it can supply beforeWrite, so it warms that same lookup first.
+    await runtime.isTerminalRunningSettledPromptAgent(handle)
+
+    await expect(
+      runtime.sendTerminalAgentPrompt(handle, 'Status update: the build is green.', {
+        beforeWrite: async () => {
+          runtime.onPtyData('pty-1', 'Refactor the login page', 2)
+          // Why: onPtyData queues the emulator write; drain it the way the fixture does, so
+          // the draft is on screen before the write path continues.
+          await runtime.listTerminals()
+        }
+      })
+    ).rejects.toBeInstanceOf(AgentPromptPendingInputError)
+    expect(write).not.toHaveBeenCalled()
   })
 
   it('appends to the draft when the caller opts in with allowPendingInput', async () => {

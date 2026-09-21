@@ -28,6 +28,30 @@ describe('detectTerminalComposerDraft', () => {
     })
   })
 
+  // Why: ordinary tool output prints labelled rules too (`──────── build ─`), and the row
+  // above a plain shell prompt is the only evidence the `❯` branch has. Regression for #16290.
+  it('does not read a shell prompt under a labelled tool rule as composer input', () => {
+    const shellScreen = (above: string) => ({
+      rows: [above, '❯ ls'],
+      typedRows: [above, '❯ ls'],
+      promptGlyphBoldRows: [false, false],
+      rowsBelow: [],
+      typedRowsBelow: [],
+      beforeCursor: '❯ ls',
+      afterCursor: '',
+      rawAfterCursor: '',
+      cursorHidden: false,
+      cursorViewportRow: 12
+    })
+    for (const rule of [
+      '──────── build ─',
+      '──────── Running tests ────────',
+      '-------- coverage --------'
+    ]) {
+      expect(detectTerminalComposerDraft(shellScreen(rule))).toBeNull()
+    }
+  })
+
   it('accepts a Claude frame line that carries a mode label', () => {
     const frame = `${'─'.repeat(88)} ultracode ─`
     expect(

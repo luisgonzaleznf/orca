@@ -109,6 +109,10 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
       assertAgentPromptRequestActive(options.signal)
       this.assertAgentPromptGeneration(ptyId, generation)
       await options.beforeWrite?.(ptyId)
+      // Why: a sendable precondition polls for up to a second waiting for the agent, which is
+      // ample time for the user to start typing. Re-read before the paste, and keep the checks
+      // below after it so they also cover this read's own window.
+      await this.assertNoPendingComposerInput(ptyId, options)
       assertAgentPromptRequestActive(options.signal)
       this.assertAgentPromptGeneration(ptyId, generation)
       this.assertAgentPromptPermissionSafe(
@@ -140,11 +144,7 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
     } else {
       const agent = this.getPtyAgent(ptyId)
       const submitDelayMs = options.promptForSchedule
-        ? resolveAgentPromptSubmitDelayForAgent(
-            writeHostPlatform,
-            options.promptForSchedule,
-            agent
-          )
+        ? resolveAgentPromptSubmitDelayForAgent(writeHostPlatform, options.promptForSchedule, agent)
         : getAgentPromptSubmitDelayMs(writeHostPlatform, pasteByteLength)
       await waitForAgentPromptDelay(submitDelayMs, options.signal)
     }
