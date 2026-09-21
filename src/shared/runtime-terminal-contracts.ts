@@ -1,3 +1,4 @@
+import type { AgentSessionPtyWriteRefusal } from './agent-session-pty-write-admission'
 import type {
   AgentProviderSessionMetadata,
   SleepingAgentLaunchConfig
@@ -5,11 +6,24 @@ import type {
 import type { StartupCommandDelivery } from './codex-startup-delivery'
 import type { ExecutionHostId } from './execution-host'
 import type { PtyIncarnationId } from './pty-incarnation'
+import type { RuntimeListingHostScope } from './runtime-listing-host-scope'
 import type { RuntimeMobileSessionTabsResult } from './runtime-session-contracts'
+import type { RuntimeTerminalVisualLayout } from './runtime-terminal-visual-layout'
 import type { TabGroupLayoutNode } from './tab-types'
 import type { TerminalExitCause } from './terminal-exit-cause'
 import type { TerminalPaneLayoutNode } from './terminal-tab-types'
 import type { TuiAgent } from './tui-agent'
+
+// Why: the visual layout tree is its own shape; the barrel keeps re-exporting it so
+// existing importers of these names are unaffected.
+export type {
+  RuntimeTerminalVisualGroupNode,
+  RuntimeTerminalVisualLayout,
+  RuntimeTerminalVisualLayoutNode,
+  RuntimeTerminalVisualPaneNode,
+  RuntimeTerminalVisualTab,
+  RuntimeTerminalVisualTerminalNode
+} from './runtime-terminal-visual-layout'
 
 export type RuntimeTerminalSummary = {
   handle: string
@@ -34,58 +48,8 @@ export type RuntimeTerminalSummary = {
   executionHostId?: ExecutionHostId
 }
 
-export type RuntimeTerminalVisualTerminalNode = {
-  type: 'terminal'
-  handle: string
-  tabId: string
-  leafId: string
-  title: string | null
-  connected: boolean
-  active: boolean
-}
-
-export type RuntimeTerminalVisualPaneNode =
-  | RuntimeTerminalVisualTerminalNode
-  | {
-      type: 'pane-split'
-      direction: Extract<TerminalPaneLayoutNode, { type: 'split' }>['direction']
-      first: RuntimeTerminalVisualPaneNode
-      second: RuntimeTerminalVisualPaneNode
-    }
-
-export type RuntimeTerminalVisualTab = {
-  tabId: string
-  title: string | null
-  activeLeafId: string | null
-  panes: RuntimeTerminalVisualPaneNode
-}
-
-export type RuntimeTerminalVisualGroupNode = {
-  type: 'group'
-  groupId: string | null
-  activeTabId: string | null
-  tabs: RuntimeTerminalVisualTab[]
-}
-
-export type RuntimeTerminalVisualLayoutNode =
-  | RuntimeTerminalVisualGroupNode
-  | {
-      type: 'split'
-      direction: Extract<TabGroupLayoutNode, { type: 'split' }>['direction']
-      first: RuntimeTerminalVisualLayoutNode
-      second: RuntimeTerminalVisualLayoutNode
-    }
-
-export type RuntimeTerminalVisualLayout = {
-  worktreeId: string
-  worktreePath: string
-  root: RuntimeTerminalVisualLayoutNode
-}
-
-export type RuntimeTerminalListHostScope = {
-  hostIds: ExecutionHostId[]
-  omittedHostIds: ExecutionHostId[]
-}
+/** The shared listing-scope shape, kept under its incumbent name for existing consumers. */
+export type RuntimeTerminalListHostScope = RuntimeListingHostScope
 
 export type RuntimeTerminalListResult = {
   terminals: RuntimeTerminalSummary[]
@@ -158,6 +122,14 @@ export type RuntimeWorktreeTerminalSleepResult = {
     }
 )
 
+export type RuntimeWorktreeTerminalCloseResult = {
+  closed: number
+  stopped: number
+  retiredSurfaces: true
+  ptyStopVerdict?: 'live' | 'unverifiable'
+  ptyStopReason?: string
+}
+
 export type RuntimeTerminalInteractiveWaitSource = 'hook' | 'prompt-text' | 'title'
 
 export type RuntimeTerminalInteractiveWait = {
@@ -204,6 +176,28 @@ export type RuntimeTerminalSend = {
   refusedReason?: 'no-agent' | 'permission' | 'pending-input'
   /** Unsent composer text that refused a submitting send (`refusedReason: 'pending-input'`). */
   pendingInput?: string
+  /**
+   * Present only when a durable agent-session lease refused the write. Additive and optional: an
+   * old client sees the `accepted: false` it already handles and ignores this field.
+   */
+  agentSessionRefusal?: AgentSessionPtyWriteRefusal
+  prompt?: RuntimeTerminalPromptDelivery
+}
+
+export type RuntimeTerminalPromptStage = 'input_accepted' | 'turn_started'
+
+export type RuntimeTerminalPromptDelivery = {
+  requestId: string
+  stages: RuntimeTerminalPromptStage[]
+  provider: 'claude' | 'codex' | 'unsupported' | 'old-host'
+  observation: 'supported' | 'unsupported' | 'incarnation_replaced' | 'permission'
+  processIncarnation: string
+  generation: number
+  baselineWorkingSequence: number
+  /** Hook turn-start timestamp before this prompt was accepted. */
+  baselineExplicitWorkingStartedAt?: number | null
+  /** Permission observations seen before this prompt was accepted. */
+  baselinePermissionSequence?: number
 }
 
 export type RuntimeTerminalAgentStatusState = 'working' | 'permission' | 'idle' | null
@@ -235,6 +229,8 @@ type RuntimeTerminalCreateBaseRequestPayload = {
   activate?: boolean
   presentation?: RuntimeTerminalPresentation
   surfaceOwner?: false
+  /** Windows shell the created tab spawns AS, instead of the host default. */
+  shellOverride?: string
 }
 
 export type RuntimeTerminalCreateRequestPayload =
@@ -246,6 +242,8 @@ export type RuntimeTerminalCreateRequestPayload =
 
 export type RuntimeTerminalCreate = {
   handle: string
+  /** Host-owned PTY incarnation used to fence remote identity observations. */
+  incarnationId?: string | null
   tabId?: string
   paneKey?: string | null
   ptyId?: string | null
@@ -257,16 +255,22 @@ export type RuntimeTerminalCreate = {
   warning?: string
   agentSessionDisposition?: 'created' | 'adopted'
   isReattach?: true
+  /** Spawn process identity for host-internal ownership proof. */
+  processId?: number
 }
 
 export type RuntimeTerminalSplit = {
   handle: string
   tabId: string
   paneRuntimeId: number
+  // Why: paired callers need the host-created leaf identity to focus the exact pane.
+  leafId?: string
 }
 
 export type RuntimeTerminalResolvePane = {
   handle: string
+  /** Host-owned PTY incarnation used to fence remote identity observations. */
+  incarnationId?: string | null
   tabId: string
   leafId: string
   ptyId: string | null
@@ -294,6 +298,10 @@ export type RuntimeTerminalClose = {
 
 export type RuntimeTerminalWaitCondition = 'exit' | 'tui-idle'
 
+// Why both spellings: the codex-* members were published by every host before the agent-neutral
+// rename, so they are permanent — a client still has to read them off an older host. This build
+// keeps a codex-* reason only where the matched wording is plausibly Codex's own; every matcher
+// that inspects no agent publishes the agent-* spelling.
 export type RuntimeTerminalWaitBlockedReason =
   | 'codex-update-prompt'
   | 'codex-trust-workspace'
@@ -301,6 +309,11 @@ export type RuntimeTerminalWaitBlockedReason =
   | 'codex-model-migration-prompt'
   | 'codex-hooks-review-prompt'
   | 'codex-interactive-prompt'
+  | 'agent-update-prompt'
+  | 'agent-trust-workspace'
+  | 'agent-cwd-prompt'
+  | 'agent-hooks-review-prompt'
+  | 'agent-interactive-prompt'
   | 'agent-approval-prompt'
 
 export type RuntimeTerminalWait = {

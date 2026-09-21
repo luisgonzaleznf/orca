@@ -6,6 +6,7 @@ import type { DiffComment, MobileDiffReviewState } from '../diff-comment-types'
 import type { EphemeralVmCheckoutMode } from '../orca-yaml-hook-types'
 import type { BuiltInWorktreeVisibilitySourceId } from '../repo-types'
 import type { WorktreeIdentity } from './identity'
+import type { WorktreeScanFailureKind } from '../worktree-scan-failure'
 
 export type WorkspaceLinkedItem = {
   provider: 'github' | 'gitlab' | 'linear' | 'jira'
@@ -77,9 +78,13 @@ export type Worktree = {
   /** Checkout ownership for a recipe-provisioned main workspace. */
   ephemeralVmCheckoutMode?: EphemeralVmCheckoutMode
   displayName: string
+  /** Projection of persisted display-name provenance. */
+  displayNameMode?: 'fixed' | 'automatic'
   comment: string
   linkedIssue: number | null
   linkedPR: number | null
+  /** GitHub PR hidden from branch discovery after an explicit unlink. */
+  suppressedGitHubPR?: number | null
   linkedLinearIssue: string | null
   linkedLinearIssueWorkspaceId?: string | null
   linkedLinearIssueOrganizationUrlKey?: string | null
@@ -217,4 +222,8 @@ export type DetectedWorktreeListResult = {
   authoritative: boolean
   source: DetectedWorktreeListSource
   worktrees: DetectedWorktree[]
+  /** Why a non-authoritative listing could not be scanned; additive, older hosts omit it. */
+  unavailableReason?: string
+  /** Structured cause captured by the execution host when a scan fails. */
+  failureKind?: WorktreeScanFailureKind
 }

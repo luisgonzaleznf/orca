@@ -14,6 +14,7 @@ export const AI_VAULT_AGENTS = [
   'rovo',
   'copilot',
   'opencode',
+  'opencode2',
   'grok',
   'openclaw',
   'devin',
@@ -56,6 +57,7 @@ export const AI_VAULT_AGENT_LABELS = {
   rovo: 'Rovo Dev',
   copilot: 'GitHub Copilot',
   opencode: 'OpenCode',
+  opencode2: 'OpenCode 2',
   grok: 'Grok',
   openclaw: 'OpenClaw',
   devin: 'Devin',
@@ -120,6 +122,11 @@ export type AiVaultSession = {
   subagentTranscriptCount: number
   resumeCommand: string
   subagent: AiVaultSessionSubagentInfo | null
+  /** Present only when the negotiated client can open the native structured owner. */
+  structuredSession?: {
+    sessionId: string
+    workspaceId: string
+  }
 }
 
 export type AiVaultSubagentListArgs = {
