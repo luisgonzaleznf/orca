@@ -49,7 +49,17 @@ export function resolveAgentLaunchCommand(args: {
   if (!trailingTokens.ok) {
     return { ok: false, error: `CLI arguments are invalid: ${trailingTokens.error}` }
   }
-  const launchTokens = insertBeforeTerminator(trailingTokens.tokens, args.transientAgentArgs ?? [])
+  // A command override can carry its own `--`, and anything appended lands after it as a positional.
+  const launchCommand = spliceTransientArgsBeforeCommandTerminator(
+    command,
+    args.transientAgentArgs ?? [],
+    args.shell
+  )
+  if (!launchCommand.ok) {
+    return launchCommand
+  }
+  const pendingTransientArgs = launchCommand.consumed ? [] : (args.transientAgentArgs ?? [])
+  const launchTokens = insertBeforeTerminator(trailingTokens.tokens, pendingTransientArgs)
   const launchSuffix = launchTokens.map((token) => quoteStartupArg(token, args.shell)).join(' ')
   const resolvedOptions = resolveAgentSessionOptionLaunch(
     args.agent,
@@ -84,19 +94,21 @@ export function resolveAgentLaunchCommand(args: {
   const commandWithoutSessionOptions = persistedSuffix.suffix
     ? `${command} ${persistedSuffix.suffix}`
     : command
-  const commandWithOptions = optionSuffix ? `${command} ${optionSuffix}` : command
+  const commandWithOptions = optionSuffix
+    ? `${launchCommand.command} ${optionSuffix}`
+    : launchCommand.command
   const overrideTokens = args.sessionOptionsOverrideAgentArgs
     ? insertBeforeTerminator(
         insertBeforeTerminator(
           removeOverriddenAgentSessionArgs(args.agent, args.sessionOptions, trailingTokens.tokens),
           resolvedOptions.args
         ),
-        args.transientAgentArgs ?? []
+        pendingTransientArgs
       )
     : []
   const commandWithOverrides = overrideTokens.length
-    ? `${command} ${overrideTokens.map((token) => quoteStartupArg(token, args.shell)).join(' ')}`
-    : command
+    ? `${launchCommand.command} ${overrideTokens.map((token) => quoteStartupArg(token, args.shell)).join(' ')}`
+    : launchCommand.command
   return {
     ok: true,
     command: args.sessionOptionsOverrideAgentArgs
@@ -106,6 +118,33 @@ export function resolveAgentLaunchCommand(args: {
         : commandWithOptions,
     commandWithoutSessionOptions,
     appliedSessionOptions: resolvedOptions.appliedValues
+  }
+}
+
+/** Splice launch-only args before a `--` the command override itself carries, so they stay flags. */
+function spliceTransientArgsBeforeCommandTerminator(
+  command: string,
+  transientArgs: readonly string[],
+  shell: AgentStartupShell
+): { ok: true; command: string; consumed: boolean } | { ok: false; error: string } {
+  if (transientArgs.length === 0) {
+    return { ok: true, command, consumed: false }
+  }
+  const tokens = tokenizeStartupCommand(command, shell)
+  if (!tokens.ok) {
+    return { ok: false, error: `Agent command override is invalid: ${tokens.error}` }
+  }
+  const terminator = tokens.tokens.indexOf('--')
+  const span = terminator === -1 ? undefined : tokens.spans[terminator]
+  if (!span) {
+    return { ok: true, command, consumed: false }
+  }
+  // Splice the original text: re-emitting tokens would requote env assignments and wrapper commands.
+  const quoted = transientArgs.map((token) => quoteStartupArg(token, shell)).join(' ')
+  return {
+    ok: true,
+    command: `${command.slice(0, span.start)}${quoted} ${command.slice(span.start)}`,
+    consumed: true
   }
 }
 
