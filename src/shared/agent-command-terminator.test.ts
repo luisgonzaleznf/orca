@@ -24,9 +24,14 @@ describe('findAgentTerminatorStart', () => {
     expect(terminatorOf('ssh -i ~/.ssh/codex devbox -- codex')).toBeNull()
   })
 
-  it('falls back to the first basename match when a wrapper has no terminator of its own', () => {
+  it('falls back to a basename match when a wrapper has no terminator of its own', () => {
     const command = 'CODEX_HOME=/tmp/x uv run codex -- literal'
     expect(terminatorOf(command)).toBe(command.indexOf(' -- ') + 1)
+  })
+
+  it('prefers the last basename match when a wrapper option value shares the agent name', () => {
+    const command = 'ssh -i ~/.ssh/codex -- devbox codex -- literal'
+    expect(terminatorOf(command)).toBe(command.lastIndexOf(' -- ') + 1)
   })
 
   it('returns null when the command carries no terminator or no agent', () => {

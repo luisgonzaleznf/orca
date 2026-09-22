@@ -99,11 +99,14 @@ export function findAgentTerminatorStart(
   }
   const isAgent = (token: string): boolean => isAgentExecutableToken(token, executableNames)
   // Why: a wrapper with no `--` of its own (`uv run codex`) keeps the agent out of command
-  // position. Fall back to the first basename match — resume stripping can't, as a wrong match
-  // there deletes a token, while here it only misplaces an insertion.
+  // position. Fall back to the last basename match: wrapper option values that share the agent's
+  // name (`ssh -i ~/.ssh/codex`) precede it. Resume stripping can't fall back at all, as a wrong
+  // match there deletes a token, while here it only misplaces an insertion.
   let agentIndex = findAgentExecutableIndex(tokens, shell, isAgent)
-  if (agentIndex === -1) {
-    agentIndex = tokens.findIndex(isAgent)
+  for (let i = tokens.length - 1; agentIndex === -1 && i >= 0; i -= 1) {
+    if (isAgent(tokens[i])) {
+      agentIndex = i
+    }
   }
   if (agentIndex === -1) {
     return null
