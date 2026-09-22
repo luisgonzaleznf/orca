@@ -1,3 +1,4 @@
+import { findAgentTerminatorStart } from './agent-command-terminator'
 import {
   removeOverriddenAgentSessionArgs,
   resolveAgentSessionOptionLaunch
@@ -51,13 +52,11 @@ export function resolveAgentLaunchCommand(args: {
   }
   // A command override can carry its own `--`, and anything appended lands after it as a positional.
   const launchCommand = spliceTransientArgsBeforeCommandTerminator(
+    args.agent,
     command,
     args.transientAgentArgs ?? [],
     args.shell
   )
-  if (!launchCommand.ok) {
-    return launchCommand
-  }
   const pendingTransientArgs = launchCommand.consumed ? [] : (args.transientAgentArgs ?? [])
   const launchTokens = insertBeforeTerminator(trailingTokens.tokens, pendingTransientArgs)
   const launchSuffix = launchTokens.map((token) => quoteStartupArg(token, args.shell)).join(' ')
@@ -121,29 +120,28 @@ export function resolveAgentLaunchCommand(args: {
   }
 }
 
-/** Splice launch-only args before a `--` the command override itself carries, so they stay flags. */
+/** Splice launch-only args before the agent's own `--` in the command, so they stay flags. */
 function spliceTransientArgsBeforeCommandTerminator(
+  agent: TuiAgent,
   command: string,
   transientArgs: readonly string[],
   shell: AgentStartupShell
-): { ok: true; command: string; consumed: boolean } | { ok: false; error: string } {
+): { command: string; consumed: boolean } {
   if (transientArgs.length === 0) {
-    return { ok: true, command, consumed: false }
+    return { command, consumed: false }
   }
-  const tokens = tokenizeStartupCommand(command, shell)
-  if (!tokens.ok) {
-    return { ok: false, error: `Agent command override is invalid: ${tokens.error}` }
-  }
-  const terminator = tokens.tokens.indexOf('--')
-  const span = terminator === -1 ? undefined : tokens.spans[terminator]
-  if (!span) {
-    return { ok: true, command, consumed: false }
+  const config = TUI_AGENT_CONFIG[agent]
+  const terminatorStart = findAgentTerminatorStart(command, shell, [
+    config.detectCmd,
+    ...(config.detectCmdAliases ?? [])
+  ])
+  if (terminatorStart === null) {
+    return { command, consumed: false }
   }
   // Splice the original text: re-emitting tokens would requote env assignments and wrapper commands.
   const quoted = transientArgs.map((token) => quoteStartupArg(token, shell)).join(' ')
   return {
-    ok: true,
-    command: `${command.slice(0, span.start)}${quoted} ${command.slice(span.start)}`,
+    command: `${command.slice(0, terminatorStart)}${quoted} ${command.slice(terminatorStart)}`,
     consumed: true
   }
 }
