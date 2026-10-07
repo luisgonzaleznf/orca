@@ -351,6 +351,8 @@ async function createTerminalSurface(
     agent: intent.agent,
     ...(startupPrompt ? { startupPrompt } : {}),
     ...terminalLaunchInputs(intent),
+    // Not in terminalLaunchInputs: a new workspace's startup terminal has no path for it.
+    ...(intent.suppressStartupUpdatePrompt ? { suppressStartupUpdatePrompt: true } : {}),
     viewMode: deriveAgentLaunchTerminalViewMode({
       settings: readAgentLaunchModeSettings(execution.runtime),
       agent: intent.agent,

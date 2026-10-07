@@ -19,6 +19,7 @@ import {
   resolveTuiAgentLaunchEnv
 } from '../../../shared/tui-agent-launch-defaults'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
+import { startupUpdatePromptSuppressionInputs } from '../../../shared/agent-startup-update-prompt-suppression'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { LaunchSource } from '../../../shared/telemetry-events'
 import { resolveAgentLaunchExecutionContext } from '@/lib/launch-agent-execution-context'
@@ -102,7 +103,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     groupId,
     prompt,
     agentArgs,
-    suppressStartupUpdatePrompt = false,
+    suppressStartupUpdatePrompt,
     initialCwd,
     promptDelivery = 'auto-submit',
     launchSource,
@@ -148,9 +149,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     shell: queuedShell,
     isRemote,
     agentArgs: effectiveAgentArgs,
-    ...(agent === 'codex' && suppressStartupUpdatePrompt
-      ? { transientAgentArgs: ['-c', 'check_for_update_on_startup=false'] }
-      : {}),
+    ...startupUpdatePromptSuppressionInputs(agent, suppressStartupUpdatePrompt),
     agentEnv,
     sessionOptions: resolveInitialNativeChatSessionOptions(store.settings, initialViewModeOptions)
   }
@@ -246,6 +245,8 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       ...(groupId ? { groupId } : {}),
       prompt: trimmedPrompt,
       ...(agentArgs !== undefined ? { agentArgs } : {}),
+      // The host builds this command; the window's startupPlan never reaches it.
+      ...(suppressStartupUpdatePrompt ? { suppressStartupUpdatePrompt: true } : {}),
       ...(initialCwd?.trim() ? { cwd: initialCwd } : {}),
       ...(startupPlan.sessionOptions ? { sessionOptions: startupPlan.sessionOptions } : {}),
       // The same source main's window stamps on its own launches.
