@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act, renderHook } from '@testing-library/react'
-import * as rowContent from './native-chat-row-content'
+import * as rowContent from '../../../../shared/native-chat-row-content'
 import { describe, expect, it, vi } from 'vitest'
 import type { NativeChatMessage } from '../../../../shared/native-chat-types'
 import type { NativeChatResolvedPrompt } from './native-chat-resolution-receipt'
@@ -31,12 +31,11 @@ function slotsOf(messages: NativeChatMessage[]) {
   return buildNativeChatTranscriptSlots({
     messages,
     turnKeys,
-    latestUserIndex: messages.findLastIndex((entry) => entry.role === 'user'),
-    currentTurnKey: undefined,
+    liveTurnKey: undefined,
     receipts: new Map<string, NativeChatResolvedPrompt>(),
     turnStatuses: { active: null, completedByTurn: {} },
     turnDiffs: new Map<string, NativeChatTurnDiff>(),
-    showTurnStatus: false,
+    expandedTurnKeys: new Set<string>(),
     isWorking: false,
     lifecycleWorking: false
   })
@@ -115,7 +114,7 @@ describe('message rail hook', () => {
     expect(scrollSubscriptions).toHaveLength(1)
   })
 
-  it('ticks every user message and hides below the minimum', () => {
+  it('ticks every user message and shows from the first one', () => {
     const element = document.createElement('div')
     const scrollRef = { current: element }
 
@@ -125,13 +124,41 @@ describe('message rail hook', () => {
     expect(result.current.items.map((item) => item.id)).toEqual(['u1', 'u2', 'u3'])
     expect(result.current.visible).toBe(true)
 
-    const { result: short } = renderHook(() =>
+    const { result: single } = renderHook(() =>
       useNativeChatMessageRail({
         scrollRef,
         slots: slotsOf([message('u1', 'user'), message('a1', 'assistant')]),
         virtualItems: []
       })
     )
-    expect(short.current.visible).toBe(false)
+    expect(single.current.visible).toBe(true)
+
+    const { result: empty } = renderHook(() =>
+      useNativeChatMessageRail({ scrollRef, slots: [], virtualItems: [] })
+    )
+    expect(empty.current.visible).toBe(false)
+  })
+
+  it('maps user messages above the loaded window from the outline, before the loaded ones', () => {
+    const scrollRef = { current: document.createElement('div') }
+    const outline = Array.from({ length: 30 }, (_, index) => ({
+      id: `older-${index}`,
+      text: `older prompt ${index}`,
+      hasImages: false
+    }))
+    const loaded = [message('u1', 'user'), message('a1', 'assistant')]
+    const { result } = renderHook(() =>
+      useNativeChatMessageRail({ scrollRef, slots: slotsOf(loaded), virtualItems: [], outline })
+    )
+    expect(result.current.visible).toBe(true)
+    expect(result.current.items.map((item) => item.id)).toEqual([
+      ...outline.map((entry) => entry.id),
+      'u1'
+    ])
+    expect(result.current.items.at(0)).toMatchObject({ slotIndex: null, text: 'older prompt 0' })
+    expect(result.current.items.at(-1)).toMatchObject({ id: 'u1', slotIndex: 0 })
+    // The sampled ticks keep both ends of the whole thread, not of the loaded page.
+    expect(result.current.ticks.at(0)?.id).toBe('older-0')
+    expect(result.current.ticks.at(-1)?.id).toBe('u1')
   })
 })
