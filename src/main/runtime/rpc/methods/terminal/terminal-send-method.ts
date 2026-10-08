@@ -23,6 +23,7 @@ import {
 export const TERMINAL_SEND_METHODS = [
   defineMethod({
     name: 'terminal.send',
+    permission: 'workspace',
     params: TerminalSend,
     handler: async (
       params,

@@ -50,6 +50,7 @@ import {
   resolveAcpLaunchCommand
 } from '../acp/acp-structured-launch-resolution'
 import { AcpStructuredSessionAdapter } from '../acp/acp-structured-session-adapter'
+import { PI_RPC_RUNTIME_REGISTRATION } from '../pi/rpc-runtime-registration'
 
 /** What an agent's adapter is built from: the open store and the runtime around it. */
 export type StructuredAgentAdapterContext = {
@@ -116,7 +117,8 @@ function nativeChatVisualsFor(deps: StructuredAgentSessionRuntimeDeps): {
     ? {
         prepareVisuals: createNativeChatVisualsDelivery({
           stateDirectory: deps.stateDirectory,
-          logger: deps.logger
+          logger: deps.logger,
+          isEnabled: deps.nativeChatVisuals.isEnabled
         })
       }
     : {}
@@ -228,7 +230,11 @@ function acpRegistration(spec: AcpLaunchSpec): StructuredAgentRuntimeRegistratio
           ...(deps.resolveAgentCommandSettings
             ? { resolveCommandSettings: deps.resolveAgentCommandSettings }
             : {}),
-          ...(deps.resolveAgentFullAccess ? { resolveFullAccess: deps.resolveAgentFullAccess } : {})
+          ...(deps.resolveAgentFullAccess
+            ? { resolveFullAccess: deps.resolveAgentFullAccess }
+            : {}),
+          ...nativeChatVisualsFor(deps),
+          logger: deps.logger
         }),
         connect: (launch, options) => createAcpAgentConnection(launch, options),
         ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
@@ -266,6 +272,7 @@ async function resolveCodexAccountHomePath(
 
 export const STRUCTURED_AGENT_RUNTIME_REGISTRATIONS: readonly StructuredAgentRuntimeRegistration[] =
   [
+    PI_RPC_RUNTIME_REGISTRATION,
     {
       definition: CODEX_STRUCTURED_AGENT,
       createAdapter: createCodexAdapter,
