@@ -3,6 +3,8 @@ import type { AgentSessionWorkspaceKind } from '../../../shared/agent-session-re
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import { projectGroupIdFromRepoId } from '../../../shared/folder-workspace-worktree'
 import type { RepoIcon } from '../../../shared/repo-icon'
+import type { AgentSessionRestartActivity } from '../../../shared/agent-session-restart-activity'
+import type { StructuredAgentId } from '../../../shared/agent-session-provider-handle'
 
 /**
  * The offered chats, arranged the way the sidebar arranges workspaces: project/repo, then workspace,
@@ -15,7 +17,9 @@ import type { RepoIcon } from '../../../shared/repo-icon'
 export type ResumeCandidate = {
   sessionId: string
   workspaceId: string
-  agent: 'claude' | 'codex'
+  /** Any agent the host registered; a client without the registered-agents capability gets
+   *  only Claude's and Codex's offers. */
+  agent: StructuredAgentId
   trigger: 'quit' | 'update'
   latestPrompt: string
   recordedAt: number
@@ -23,6 +27,20 @@ export type ResumeCandidate = {
   executionHostId?: ExecutionHostId
   workspaceKind?: AgentSessionWorkspaceKind
   model?: string
+  /** What the chat was doing, snapshotted by the host as it stopped; an older host omits it. */
+  activity?: AgentSessionRestartActivity
+}
+
+/** An offer that was acted on and did not end with the agent carrying on. The host keeps it until
+ *  the user sends in the chat, retries successfully, dismisses it, or closes the chat. */
+export type ResumeFailure = ResumeCandidate & {
+  failedAt: number
+  outcome: 'refused' | 'unconfirmed'
+  /** The host's or provider's refusal code, verbatim; or, for a resume request lost before the
+   *  host reserved anything, this side's own `agent_session_restart_request_failed`. */
+  reason: string
+  /** Whether a retry would run at all; an older host omits it and the reason decides alone. */
+  retryable?: boolean
 }
 
 export type ResumeWorkspaceGroup = {
@@ -40,7 +58,7 @@ export type ResumeRepoGroup = {
  * The same id space automation dispatch resolves: a folder workspace by its full `folder:<uuid>`
  * key, a git worktree by its bare `repoId::path` id.
  */
-export function isFolderWorkspaceId(workspaceId: string): boolean {
+function isFolderWorkspaceId(workspaceId: string): boolean {
   return parseWorkspaceKey(workspaceId)?.type === 'folder'
 }
 
@@ -127,22 +145,7 @@ export function resolveResumeGroupHeader(
   }
 }
 
-/** Every offered session id, which is the default selection and the ceiling on any selection. */
+/** Every offered session id, which is what an unselective action names. */
 export function allResumeSessionIds(candidates: readonly ResumeCandidate[]): string[] {
   return candidates.map((candidate) => candidate.sessionId)
-}
-
-/**
- * Narrows a selection to sessions the host actually offered.
- *
- * Selection changes only WHICH eligible chats are acted on, never what is eligible, so anything not
- * in the offered set is dropped here before it can reach an action.
- */
-export function selectedResumeSessionIds(
-  candidates: readonly ResumeCandidate[],
-  selected: ReadonlySet<string>
-): string[] {
-  return candidates
-    .filter((candidate) => selected.has(candidate.sessionId))
-    .map((candidate) => candidate.sessionId)
 }
