@@ -10,17 +10,21 @@ import { STRUCTURED_AGENT_RUNTIME_REGISTRATIONS } from '../../structured-agent-r
 import { defineMethod } from '../core'
 import { requireStructuredCapability } from './structured-agent-session-gate'
 import { AgentsParams } from './structured-agent-session-schemas'
+import { clientReadsStructuredSessionAgent } from './structured-agent-session-policy'
 
 export const STRUCTURED_AGENT_SESSION_AGENTS_METHODS = [
   defineMethod({
     name: AGENT_SESSION_AGENTS_METHOD,
+    permission: 'workspace',
     params: AgentsParams,
     // Read from the registrations the host is built from, as createSupport is: the answer is
     // fixed for this build, so it never waits on, or fails with, installing the host.
     handler: async (_params, ctx): Promise<AgentSessionAgentsResult> => {
       requireStructuredCapability(ctx)
       return {
-        agents: STRUCTURED_AGENT_RUNTIME_REGISTRATIONS.map(({ definition }) => ({
+        agents: STRUCTURED_AGENT_RUNTIME_REGISTRATIONS.filter(({ definition }) =>
+          clientReadsStructuredSessionAgent(ctx, definition.agent)
+        ).map(({ definition }) => ({
           agent: definition.agent,
           capabilities: { ...definition.capabilities }
         }))

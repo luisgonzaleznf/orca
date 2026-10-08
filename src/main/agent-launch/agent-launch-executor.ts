@@ -47,7 +47,6 @@ import {
   type WorkspaceLaunchKind
 } from '../../shared/workspace-launch-kind'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
-import { deriveAgentLaunchTerminalViewMode } from './agent-launch-view-mode'
 import { isDefinitiveAgentSessionCreateRefusal } from '../../shared/agent-session-definitive-refusal'
 import {
   decideAgentLaunchMode,
@@ -355,12 +354,7 @@ async function createTerminalSurface(
     ...terminalLaunchInputs(intent),
     // Not in terminalLaunchInputs: a new workspace's startup terminal has no path for it.
     ...(intent.suppressStartupUpdatePrompt ? { suppressStartupUpdatePrompt: true } : {}),
-    viewMode: deriveAgentLaunchTerminalViewMode({
-      settings: readAgentLaunchModeSettings(execution.runtime),
-      agent: intent.agent,
-      ...(intent.prompt ? { prompt: intent.prompt } : {}),
-      connectionId: workspace.connectionId
-    })
+    viewMode: 'terminal'
   })
   return {
     outcome: {

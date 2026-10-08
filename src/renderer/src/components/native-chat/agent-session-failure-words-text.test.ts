@@ -37,7 +37,12 @@ const IDS = Object.keys(AGENT_SESSION_FAILURE_COPY).filter(
 const NOTICE_PIECES: readonly AgentSessionFailureCopyId[] = [
   'terminalAgentHoldsChat',
   'quitTerminalAgent',
-  'startNewChat'
+  'startNewChat',
+  'backgroundTasksRunning',
+  'waitForBackgroundTasks',
+  'agentStarting',
+  'waitForStart',
+  'agentStillWorking'
 ]
 // Kana, and kanji whose simplified Chinese form differs (続 is 续, 読 is 读, ...).
 const JAPANESE_ONLY = /[\u3040-\u30ff続読変済図気帰戻検択転権単圧応対発処実証覧関専]/u
@@ -141,7 +146,7 @@ describe('desktop words for a failure fact', () => {
         agentSessionWriteNoticeParts(refused, 'send', { agentName: 'Claude' })
       )
     ).toBe(
-      "Votre message n'a pas été envoyé. Claude n'est pas connecté avec le compte sélectionné. Connectez-vous, puis renvoyez votre message."
+      "Votre message n'a pas été envoyé. Claude n’est pas connecté. Exécutez `claude` et connectez-vous avec /login, ou choisissez un compte dans les paramètres des Comptes Claude."
     )
     const detail = 'Uses {{agent}} $t(components.native-chat.failureWords.theAgent) <b>&</b>'
     const rejected = structuredAgentSessionRejectionParts(
@@ -174,7 +179,7 @@ describe('desktop words for a failure fact', () => {
       "Codex n'a pas pu redémarrer. Relancez /compact."
     )
     expect(sentence('notSignedIn', 'clear')).toBe(
-      "Codex n'est pas connecté avec le compte sélectionné. Connectez-vous, puis relancez /clear."
+      'Codex n’est pas connecté. Exécutez `codex login`. Relancez /clear.'
     )
     await i18n.changeLanguage('ja')
     expect(sentence('providerStartFailed', 'compact')).toBe(

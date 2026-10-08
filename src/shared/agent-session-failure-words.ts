@@ -18,6 +18,7 @@ import {
   type SubmissionRejectionKind
 } from './agent-session-failure'
 import type { AgentSessionConversationCommand } from './agent-session-conversation-command'
+import { cliMissingSentence, notSignedInSentence } from './agent-session-availability-sentences'
 import {
   sayAgentSessionFailureEnglish,
   type AgentSessionFailureCopyId,
@@ -26,6 +27,7 @@ import {
 } from './agent-session-failure-copy'
 import type { AgentSessionWireRefusalCode } from './agent-session-wire-refusals'
 import { providerRetryWords, withRetryCause } from './agent-session-provider-retry-words'
+import { commandRefusedByReason } from './agent-session-command-refusal-words'
 import { joinSentences } from './sentence-joining'
 import {
   DISPATCH_REJECTED_CANCELLED,
@@ -205,16 +207,8 @@ const FAILURE_SENTENCES = {
   providerStartFailed: (context, _fact, _surface, say) =>
     joinSentences([say('providerStartFailed', agent(say, context)), ...startRetry(say, context)]),
   startFailed: couldNot('couldNotStart'),
-  // Beside a Retry the resend is the button, but signing in is still a step to take first.
-  notSignedIn: (context, _fact, _surface, say) =>
-    joinSentences([
-      say('notSignedIn', agent(say, context)),
-      context.retryControl
-        ? say('signInFirst')
-        : context.command
-          ? say('signInThenRunCommand', { command: context.command })
-          : say('signInThenSend')
-    ]),
+  notSignedIn: (context, fact, _surface, say) => notSignedInSentence(context, fact, say),
+  cliMissing: (context, _fact, _surface, say) => cliMissingSentence(context, say),
   historyTooLarge: (_context, _fact, _surface, say) =>
     joinSentences([say('historyTooLarge'), say('startNewChat')]),
   managedAccountEnvOverride: (_context, _fact, _surface, say) => say('managedAccountEnvOverride'),
@@ -250,8 +244,9 @@ const FAILURE_SENTENCES = {
   hostRestarted: (_context, _fact, _surface, say) => say('hostRestarted'),
   notDelivered: ({ retryControl }, _fact, _surface, say) =>
     say(retryControl ? 'notDelivered' : 'notDeliveredSendAgain'),
-  commandRefused: ({ retryControl }, _fact, _surface, say) =>
-    say(retryControl ? 'commandRefused' : 'commandRefusedTryAgain'),
+  commandRefused: (context, fact, _surface, say) =>
+    commandRefusedByReason(say, context, fact) ??
+    say(context.retryControl ? 'commandRefused' : 'commandRefusedTryAgain'),
   compactionFailed: (_context, fact, _surface, say) =>
     quotingPersonDetail(say, 'compactionFailed', 'compactionFailedQuoted', fact.detail),
   compactionUnconfirmed: (_context, _fact, _surface, say) => say('compactionUnconfirmed'),
