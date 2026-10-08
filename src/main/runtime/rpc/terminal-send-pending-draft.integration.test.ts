@@ -191,6 +191,7 @@ describe('terminal.send into a composer with unsent input', () => {
 
     await expect(
       runtime.sendTerminalAgentPrompt(handle, 'Status update: the build is green.', {
+        inputKind: 'driving',
         beforeWrite: async () => {
           runtime.onPtyData('pty-1', 'Refactor the login page', 2)
           // Why: onPtyData queues the emulator write; drain it the way the fixture does, so
